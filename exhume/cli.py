@@ -99,6 +99,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     perf = p.add_argument_group("performance")
     perf.add_argument("--workers", type=int, default=0, help="Worker count (0=auto)")
+    perf.add_argument("--file-timeout", type=int, default=120,
+                      help="Max seconds per file before skipping it (0=no limit)")
     perf.add_argument("--threads", action="store_true", help="Use threads instead of processes")
     perf.add_argument("--no-autoinstall", dest="autoinstall", action="store_false")
 
@@ -129,7 +131,8 @@ def args_to_config(a: argparse.Namespace) -> Config:
         rules_files=list(a.rules), allowlist_file=a.allowlist, no_default_rules=a.no_default_rules,
         baseline_file=a.baseline, write_baseline_file=a.write_baseline,
         ai=a.ai, ai_model=a.ai_model, ai_url=a.ai_url,
-        workers=a.workers, use_processes=not a.threads, show_per_type=a.show, min_sev=a.min_sev,
+        workers=a.workers, file_timeout=a.file_timeout, use_processes=not a.threads,
+        show_per_type=a.show, min_sev=a.min_sev,
         no_color=a.no_color, context_width=a.context, mask=a.mask, autoinstall=a.autoinstall,
         smb_user=a.smb_user, smb_pass=a.smb_pass, smb_domain=a.smb_domain,
         smb_port=a.smb_port, smb_all=a.smb_all, s3_region=a.s3_region, s3_all=a.s3_all,

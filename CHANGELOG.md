@@ -2,6 +2,17 @@
 
 All notable versions of Exhume.
 
+## [Unreleased]
+
+### Added
+- `--file-timeout` (default 120 s): a file that takes too long is skipped and reported
+  as `skipped (timeout >Ns)` instead of stalling the whole scan.
+
+### Fixed
+- CI: pin the runner to `ubuntu-24.04`; `ubuntu-latest` (26.04) no longer ships Python 3.9.
+- Scan hanging near the end on pathological PDF/XLSX files.
+- Noisy openpyxl warnings and pdfminer messages are now suppressed in workers.
+
 ## [7.0.1] — 2026-11-24
 
 ### Fixed

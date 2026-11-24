@@ -56,6 +56,7 @@ class Config:
     # --- Performance ---
     workers: int = 0            # 0 => auto
     use_processes: bool = True  # true multi-core
+    file_timeout: int = 120     # seconds per entry (0 = no limit); avoids hangs on pathological files
 
     # --- Presentation ---
     show_per_type: int = 8

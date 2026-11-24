@@ -7,10 +7,13 @@ cache.
 from __future__ import annotations
 
 import concurrent.futures as cf
+import logging
 import os
 import shutil
+import signal
 import tempfile
 import time
+import warnings
 
 from . import ai as ai_mod
 from . import baseline
@@ -43,14 +46,45 @@ _WORKER_CFG: Config | None = None
 def _init_worker(cfg: Config) -> None:
     global _WORKER_CFG
     _WORKER_CFG = cfg
+    # Document libraries are very chatty on malformed files; hide that noise.
+    warnings.filterwarnings("ignore")
+    for name in ("pdfminer", "pdfplumber", "openpyxl", "PIL"):
+        logging.getLogger(name).setLevel(logging.CRITICAL)
+
+
+class _FileTimeout(Exception):
+    pass
+
+
+def _on_alarm(signum, frame):
+    raise _FileTimeout()
 
 
 def _scan_one(entry: tuple[str, str]) -> list[FileResult]:
     rp, dp = entry
+    cfg = _WORKER_CFG
+    limit = getattr(cfg, "file_timeout", 0)
+    use_alarm = bool(limit) and hasattr(signal, "SIGALRM")
+    old = None
+    if use_alarm:
+        try:
+            old = signal.signal(signal.SIGALRM, _on_alarm)
+            signal.alarm(limit)
+        except ValueError:  # not in the main thread (--threads mode)
+            use_alarm = False
     try:
-        return [r for r in process_entry(rp, dp, _WORKER_CFG) if r.interesting]
+        return [r for r in process_entry(rp, dp, cfg) if r.interesting]
+    except _FileTimeout:
+        name = os.path.basename(dp)
+        return [FileResult(path=dp, name=name, ext=ext_of(name), size=0,
+                           note=f"skipped (timeout >{limit}s)")]
     except Exception:
         return []
+    finally:
+        if use_alarm:
+            signal.alarm(0)
+            if old is not None:
+                signal.signal(signal.SIGALRM, old)
 
 
 def _apply_path(findings: list[Finding], path: str) -> None:
