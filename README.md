@@ -11,7 +11,7 @@
 
 It doesn't only look where it's easy: it reads **inside** PDF, Word, Excel, PowerPoint, emails, images (OCR, on by default), nested archives, **executables and key files** (string-scanned), and the **full Git history**. It catches secrets even when the variable name isn't the usual one, thanks to a broad keyword set plus a high-entropy pass.
 
-An optional **local-AI triage** (via Ollama, on by default when a model is present) prioritizes the findings — "which of these are the fastest paths to access" — right in the report. It only ever sees masked values and never leaves your machine.
+A **bundled local AI** (a small open model that Exhume installs and downloads by itself on first run, ~2.1 GB) reads each ambiguous match in context and separates real data from look-alikes — a version number or manual section is not an IP, an invoice total is not a card. It also prioritizes the findings in the report. Everything runs on your machine; Ollama is used as a fallback if it is already running.
 
 When a match sits in a huge line (a minified JS file, a pasted dump), Exhume doesn't dump the whole wall of text at you — it shows a **focused window around the match** (configurable with `--context`), so you see only what matters.
 
@@ -151,7 +151,7 @@ exhume . --reveal
 | `--no-ocr` | Disable image OCR (on by default when tesseract is present). |
 | `--rules FILE` | Custom YAML/JSON rules (repeatable). |
 | `--allowlist FILE` | Regexes (one per line) to ignore. |
-| `--no-ai` / `--ai-model` | Disable / choose the local-AI triage model (Ollama). |
+| `--no-ai` / `--ai-gguf` / `--ai-max-calls` / `--ai-model` | Disable the local AI / use another `.gguf` model file / cap model calls (default 4000) / choose the Ollama triage model. |
 | `--deep` / `--quick` | Exhaustive / fast profiles. |
 | `--json --csv --sarif` | Extra output formats (HTML always, unless `--no-html`). |
 
@@ -166,6 +166,10 @@ Verification is **on by default** (disable with `--no-verify`). Inspired by Truf
 - *unknown* — no network or no verifier.
 
 Providers with active verification: **AWS** (SigV4 signature against STS `GetCallerIdentity`, pairing Access Key + Secret), GitHub, GitLab, Slack, Stripe, SendGrid, DigitalOcean, Telegram, Discord, npm and Postman.
+
+### Local AI: real data vs. false positives
+
+On first run Exhume installs `llama-cpp-python` and downloads Qwen2.5-3B-Instruct (Q4, ~2.1 GB) into `~/.cache/exhume` — nothing to set up. Matches that are ambiguous without context (IPs, cards, IBANs, DNI/NIE/SSN, password assignments) are judged with their surrounding text; ones judged false positives are kept but hidden by default (HTML toggle, CSV/JSON `ai` column). Only that one-time model download touches the network; scanned data never leaves the machine. To use a larger/better model: `--ai-gguf /path/model.gguf`. Disable with `--no-ai`.
 
 ### Local AI triage
 
@@ -197,6 +201,7 @@ exhume/
 ├── scanner.py          # engine: orchestrates everything (multiprocessing)
 ├── baseline.py         # re-audit diffing (fingerprints)
 ├── ai.py               # optional local-AI triage (Ollama)
+├── ai_filter.py        # bundled local AI: real data vs. false positives
 ├── deps.py             # optional dependencies + auto-install
 ├── detectors/          # detection engine
 │   ├── patterns.py     #   ~68 built-in detectors

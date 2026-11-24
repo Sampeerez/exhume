@@ -95,10 +95,13 @@ def build_parser() -> argparse.ArgumentParser:
     rules.add_argument("--write-baseline", default="", metavar="FILE",
                        help="Write current fingerprints to this baseline file")
 
-    ai = p.add_argument_group("local AI triage (Ollama)")
+    ai = p.add_argument_group("local AI (bundled model, Ollama fallback)")
     ai.add_argument("--no-ai", dest="ai", action="store_false",
                     help="Disable local-AI triage (on by default if a local model is reachable)")
     ai.add_argument("--ai-model", default="", help="Ollama model to use (default: first available)")
+    ai.add_argument("--ai-gguf", default="", help="Use this .gguf model file for the bundled AI")
+    ai.add_argument("--ai-max-calls", type=int, default=4000,
+                    help="Max model calls spent judging ambiguous matches (default 4000)")
     ai.add_argument("--ai-url", default="http://localhost:11434", help="Ollama base URL")
 
     p.add_argument("--html-max", type=int, default=50000,
@@ -138,6 +141,7 @@ def args_to_config(a: argparse.Namespace) -> Config:
         rules_files=list(a.rules), allowlist_file=a.allowlist, no_default_rules=a.no_default_rules,
         baseline_file=a.baseline, write_baseline_file=a.write_baseline,
         ai=a.ai, ai_model=a.ai_model, ai_url=a.ai_url,
+        ai_gguf=a.ai_gguf, ai_max_calls=a.ai_max_calls,
         workers=a.workers, file_timeout=a.file_timeout, html_max=a.html_max, use_processes=not a.threads,
         show_per_type=a.show, min_sev=a.min_sev,
         no_color=a.no_color, context_width=a.context, mask=a.mask, autoinstall=a.autoinstall,

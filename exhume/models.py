@@ -41,11 +41,18 @@ class Finding:
     verifier: str | None = None        # key in VERIFIERS, if applicable
     verified: Verified = Verified.UNKNOWN
     detail: str | None = None          # verification detail or note
+    ai_verdict: str | None = None      # local-AI judgement: "real" | "false" | None (not judged)
+    ai_note: str | None = None         # how the verdict was reached
     # Plaintext secret: NEVER serialized to the report by default; lives in memory
     # for verification and is only exposed when the user passes --reveal.
     secret: str | None = field(default=None, repr=False)
     # Transient auxiliary data (e.g. AWS secret-key candidates). Not serialized.
     extra: dict = field(default_factory=dict, repr=False)
+
+    @property
+    def hidden(self) -> bool:
+        """Failed its check or judged a false positive by the local AI (kept, but not shown by default)."""
+        return self.verified is Verified.INVALID or self.ai_verdict == "false"
 
     def fingerprint(self) -> str:
         """Stable identifier for baseline diffing (does not expose the secret)."""
@@ -87,6 +94,7 @@ class FileResult:
     note: str | None = None
     method: str | None = None
     db_info: dict | None = None
+    ai_verdict: str | None = None   # local-AI judgement of an asset: "real" | "false" | None
 
     @property
     def interesting(self) -> bool:
@@ -106,8 +114,10 @@ class ScanStats:
     ai_summary: str = ""  # local-AI triage report (Markdown), if available
     ai_model: str = ""    # model that produced the triage
     coverage: dict = field(default_factory=dict)  # how every entry was handled
+    ai_filter: dict = field(default_factory=dict)  # local-AI judgement counters
+    ai_engine: str = ""
 
 
 def finding_sort_key(f: Finding) -> tuple:
     """Sort: live credentials first, then by severity, then by path."""
-    return (f.verified is not Verified.LIVE, f.verified is Verified.INVALID, -int(f.severity), f.path, f.line)
+    return (f.verified is not Verified.LIVE, f.hidden, -int(f.severity), f.path, f.line)

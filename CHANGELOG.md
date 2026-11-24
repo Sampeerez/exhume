@@ -18,6 +18,18 @@ All notable versions of Exhume.
 - HTML report: assets (executables, archives, …) are collapsible folder trees instead of long lists.
 - Coverage summary (content scanned / media skipped / unreadable / too big …) in console, JSON and HTML.
 
+- **Bundled local AI that judges matches in context** (`exhume/ai_filter.py`): installs
+  `llama-cpp-python` and downloads Qwen2.5-3B-Instruct (Q4, ~2.1 GB, cached in `~/.cache/exhume`) on
+  first run, so nothing has to be pre-installed (Ollama is a fallback). Ambiguous matches (IPs, cards,
+  IBANs, DNI/NIE/SSN, password assignments) are judged REAL or FALSE from their surrounding text; false
+  positives are kept but hidden by default. Calls are deduplicated and inherited within homogeneous
+  (file, detector) groups; capped by `--ai-max-calls`. `--ai-gguf` uses another model; `--no-ai` disables. Verdicts use token
+  probabilities with few-shot examples (a match is hidden only when the model is confident), and only
+  the match's own line is shown to the model.
+- The AI also drops noise **assets** (database/config listings such as caches or resource files);
+  assets holding findings or sensitive columns are never hidden. Housekeeping files (`Thumbs.db`,
+  `.DS_Store`, `desktop.ini`, `~$*`, ...) are excluded without AI.
+
 ### Changed
 - Fewer false positives in credential detection: placeholders like `[Password]` and binary garbage
   decoded as text are dropped.

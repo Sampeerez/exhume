@@ -27,10 +27,11 @@ archives = ["py7zr", "rarfile"]
 remote = ["impacket", "boto3"]
 ocr = ["pillow", "pytesseract"]
 rules = ["PyYAML"]
+ai = ["llama-cpp-python"]
 # Todo de golpe:
 full = [
     "pdfplumber", "python-docx", "openpyxl", "python-pptx", "extract-msg",
-    "py7zr", "rarfile", "impacket", "boto3", "pillow", "pytesseract", "PyYAML",
+    "py7zr", "rarfile", "impacket", "boto3", "pillow", "pytesseract", "PyYAML", "llama-cpp-python",
 ]
 dev = ["pytest", "pytest-cov", "ruff"]
 

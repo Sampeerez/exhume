@@ -16,7 +16,7 @@ import time
 import warnings
 
 from . import ai as ai_mod
-from . import baseline
+from . import ai_filter, baseline
 from .config import Config
 from .console import Colors, eprint
 from .detectors import aws_secret_candidates, cached_rules, scan_text
@@ -316,6 +316,8 @@ class Scanner:
         self.stats.git_blobs = sum(1 for r in results if "git_history" in r.tags)
         self.stats.verified_live = sum(1 for r in results for f in r.findings
                                        if f.verified is Verified.LIVE)
+        if cfg.ai:
+            self._ai_filter(results)
         if cfg.ai and any(r.findings for r in results):
             res = ai_mod.triage(results, cfg.ai_url, cfg.ai_model)
             if res:
@@ -404,6 +406,43 @@ class Scanner:
                 list(ex.map(verify_one, jobs))
         if cfg.probe_ips:
             self._verify_ips(results)
+
+    def _get_engine(self):
+        """Load the local AI once (installing/downloading it on first use)."""
+        if not hasattr(self, "_engine"):
+            cfg = self.cfg
+            self._engine = ai_filter.load_engine(cfg.autoinstall, cfg.ai_gguf, cfg.ai_url, cfg.ai_model)
+            if self._engine is None:
+                eprint(f"{Colors.Y}No local AI available; ambiguous matches and assets are reported "
+                       f"unjudged (see the message above).{Colors.END}")
+            else:
+                self.stats.ai_engine = getattr(self._engine, "name", "local AI")
+        return self._engine
+
+    def _ai_filter(self, results: list[FileResult]) -> None:
+        """Let the local AI separate real data from look-alikes (IPs, cards, IBANs, IDs, passwords)
+        and drop noise assets (thumbnail DBs, caches, resource config...)."""
+        cfg = self.cfg
+        has_matches = any(ai_filter._is_judged(f) for r in results for f in r.findings)
+        has_assets = any(("database" in r.tags or "config" in r.tags) for r in results)
+        if not (has_matches or has_assets):
+            return
+        eprint(f"{Colors.CY}Local AI: judging ambiguous matches and assets in context...{Colors.END}")
+        engine = self._get_engine()
+        if engine is None:
+            return
+        if has_matches:
+            st = ai_filter.judge(results, engine, cfg.ai_max_calls)
+            self.stats.ai_filter = st
+            eprint(f"{Colors.GR}AI ({self.stats.ai_engine}): {st['real']} real, {st['false']} false positives "
+                   f"hidden ({st['asked']} model calls, {st['inherited']} inherited"
+                   f"{', ' + str(st['skipped']) + ' not judged' if st['skipped'] else ''}).{Colors.END}")
+        if has_assets:
+            sa = ai_filter.judge_assets(results, engine)
+            self.stats.ai_filter = {**self.stats.ai_filter, "assets_noise": sa["false"],
+                                    "assets_kept": sa["real"]}
+            eprint(f"{Colors.GR}AI assets: {sa['false']} noise file(s) hidden, {sa['real']} kept "
+                   f"({sa['asked']} model calls).{Colors.END}")
 
     def _verify_ips(self, results: list[FileResult]) -> None:
         """Check that every discovered IP is a real, reachable/assigned host (deduplicated)."""

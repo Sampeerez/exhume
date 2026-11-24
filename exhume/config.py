@@ -53,6 +53,8 @@ class Config:
     ai: bool = True                # attempt local-AI triage if a model is reachable
     ai_model: str = ""             # specific model (blank = first available)
     ai_url: str = "http://localhost:11434"
+    ai_gguf: str = ""              # custom .gguf model file for the bundled engine
+    ai_max_calls: int = 4000       # cap on model calls for judging matches
 
     # --- Performance ---
     workers: int = 0            # 0 => auto

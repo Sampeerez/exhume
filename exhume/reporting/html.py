@@ -166,7 +166,7 @@ footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
   <select id="detsel" onchange="render()"><option value="">All detectors</option>__DETOPTS__</select>
   <label class="tog"><input type="checkbox" id="liveonly" onchange="render()"> Verified only</label>
   <label class="tog"><input type="checkbox" id="expall" onchange="toggleAll(this.checked)"> Expand all</label>
- <label class="tog"><input type="checkbox" id="hideinv" checked onchange="render()" title="Hide matches that failed their check (bad IBAN/DNI/card checksum, IP with no host)"> Hide invalid</label>
+ <label class="tog"><input type="checkbox" id="hideinv" checked onchange="render();renderExtra()" title="Hide matches that failed their check (bad checksum, IP with no host) or that the local AI judged a false positive"> Hide invalid / AI false positives</label>
   <label class="tog"><input type="checkbox" id="showdis" onchange="render()"> Show dismissed</label>
   <button class="btn" onclick="copyLive()">Copy live creds</button>
   <button class="btn noreport" onclick="dismissFiltered()" title="Mark every finding matching the current filters as false positive">Dismiss filtered</button>
@@ -203,9 +203,11 @@ let DIS=new Set(); try{DIS=new Set(JSON.parse(localStorage.getItem(SKEY)||'[]'))
 function saveDis(){try{localStorage.setItem(SKEY,JSON.stringify([...DIS]));}catch(e){}}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function vbadge(f){
- return {live:'<span class="vbadge v-live">● LIVE</span>',dead:'<span class="vbadge v-dead">● dead</span>',
+ const ai=f.ai==='real'?' <span class="vbadge v-valid" title="'+esc(f.ai_note||'')+'">AI: real</span>'
+  :(f.ai==='false'?' <span class="vbadge v-invalid" title="'+esc(f.ai_note||'')+'">AI: false positive</span>':'');
+ return ({live:'<span class="vbadge v-live">● LIVE</span>',dead:'<span class="vbadge v-dead">● dead</span>',
   valid:'<span class="vbadge v-valid" title="Passed its check (checksum OK / host answers)">● VALID</span>',
-  invalid:'<span class="vbadge v-invalid" title="Failed its check (bad checksum / no host answered)">● invalid</span>'}[f.verified]||'';
+  invalid:'<span class="vbadge v-invalid" title="Failed its check (bad checksum / no host answered)">● invalid</span>'}[f.verified]||'')+ai;
 }
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1300);}
 function copy(txt){navigator.clipboard.writeText(txt).then(()=>toast('Copied')).catch(()=>toast('Copy failed'));}
@@ -241,7 +243,7 @@ function match(f){
  const liveonly=document.getElementById('liveonly').checked;
  const showdis=document.getElementById('showdis').checked&&!REPORT;
  if(!showdis && DIS.has(f.fingerprint)) return false;
- if((document.getElementById('hideinv').checked||REPORT) && f.verified==='invalid') return false;
+ if((document.getElementById('hideinv').checked||REPORT) && (f.verified==='invalid'||f.ai==='false')) return false;
  if(fSev==='live'){ if(f.verified!=='live') return false; }
  else if(fSev!=='all'){ if(String(f.severity)!==fSev) return false; }
  if(liveonly && f.verified!=='live') return false;
@@ -280,7 +282,7 @@ function detailHTML(f,i){
   +'</div>';
 }
 function rowFor(f,i){
- const tr=document.createElement('tr'); tr.className='row'+(DIS.has(f.fingerprint)?' dis':'')+(f.verified==='invalid'?' inv':'');
+ const tr=document.createElement('tr'); tr.className='row'+(DIS.has(f.fingerprint)?' dis':'')+(f.verified==='invalid'||f.ai==='false'?' inv':'');
  const vb=vbadge(f);
  const loc=esc(relPath(f.path))+':'+f.line+(f.col?(':'+f.col):'');
  const dis=DIS.has(f.fingerprint);
@@ -309,8 +311,8 @@ function render(resetPage){
  view.slice(page*PAGE,(page+1)*PAGE).forEach(i=>frag.appendChild(rowFor(DATA.findings[i],i)));
  tb.appendChild(frag);
  if(!view.length) tb.innerHTML='<tr><td colspan="7" class="empty">No findings match the current filters.</td></tr>';
- let ninv=0; if(document.getElementById('hideinv').checked||REPORT) DATA.findings.forEach(f=>{if(f.verified==='invalid')ninv++;});
- const ni=ninv?(' · '+ninv.toLocaleString()+' invalid hidden'):'';
+ let ninv=0; if(document.getElementById('hideinv').checked||REPORT) DATA.findings.forEach(f=>{if(f.verified==='invalid'||f.ai==='false')ninv++;});
+ const ni=ninv?(' · '+ninv.toLocaleString()+' hidden'):'';
  const nd=DIS.size?(' · '+DIS.size.toLocaleString()+' dismissed'):'';
  document.getElementById('count').textContent=view.length.toLocaleString()+' / '+DATA.findings.length.toLocaleString()+' findings'+ni+nd;
  renderPager(pages); updateCards();
@@ -357,7 +359,7 @@ function toggleReport(){
  REPORT=!REPORT; document.body.classList.toggle('report',REPORT);
  const b=document.getElementById('rmode'); b.textContent=REPORT?'Exit report mode':'📷 Report mode'; b.classList.toggle('on',REPORT);
  const t=document.querySelector('.tgt'); if(t) t.textContent=REPORT?'[target hidden]':t.dataset.real;
- render();
+ render(); renderExtra();
 }
 function goPage(p){page=p;render(false);window.scrollTo({top:0});}
 function renderPager(pages){
@@ -419,7 +421,8 @@ function renderExtra(){
   executable:'Executables',archive:'Archives',config:'Config files',git_history:'Git history'};
  const as=DATA.assets||{}; const box=document.createElement('div'); box.id='assetsec'; box.className='tree';
  let any=false;
- for(const k in titles){ const items=as[k]||[]; if(!items.length) continue; any=true;
+ const hideAI=document.getElementById('hideinv').checked||REPORT;
+ for(const k in titles){ const items=(as[k]||[]).filter(i=>!(hideAI&&i.ai==='false')); if(!items.length) continue; any=true;
   const det=document.createElement('details'); det.className='cat';
   det.innerHTML='<summary>'+titles[k]+'<span class="cnt">'+items.length.toLocaleString()+'</span></summary><div class="kids"></div>';
   let built=false;
@@ -515,7 +518,7 @@ _FIELD_CAP = 400
 
 def _compact(f: dict, keep_block: bool) -> dict:
     """Trim a finding for embedding in HTML (the JSON/CSV keep the full data)."""
-    out = {k: f[k] for k in ("detector", "severity", "line", "col", "path", "verified", "detail", "fingerprint")}
+    out = {k: f[k] for k in ("detector", "severity", "line", "col", "path", "verified", "detail", "fingerprint", "ai", "ai_note")}
     out["value"] = f["value"][:_FIELD_CAP] if f["value"] else f["value"]
     out["context"] = (f["context"] or "")[:_FIELD_CAP]
     if keep_block and f.get("context_block"):
@@ -533,7 +536,7 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
     m, rs = payload["meta"], payload["summary"]
     sev = rs["by_severity"]
     c3, c2, c1 = sev["CRITICAL"], sev["HIGH"], sev["MEDIUM"]
-    inv = rs.get("invalid", 0)
+    inv = rs.get("hidden", rs.get("invalid", 0))
     shown_total = rs["total_findings"] - inv      # cards/bar exclude matches that failed validation
     total = shown_total or 1
     bar = (f"<i style='width:{c3 / total * 100:.1f}%;background:var(--crit)'></i>"
@@ -554,7 +557,10 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
     if cov_parts:
         metaline += "<br>Coverage: " + " · ".join(cov_parts)
     if inv:
-        metaline += f"<br>{inv:,} matches failed validation (bad checksum / no host answered), hidden by default"
+        metaline += (f"<br>{inv:,} matches hidden by default: failed validation (checksum / no host) "
+                     f"or judged false positives by the local AI ({rs.get('ai_false', 0):,})")
+    if m.get("ai_engine"):
+        metaline += f"<br>AI filter: {_h.escape(m['ai_engine'])}"
     mask_badge = '<span class="badge-mask">MASKED</span>' if m.get("masked") else ""
 
     all_f = payload["findings"]

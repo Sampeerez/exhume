@@ -81,8 +81,24 @@ def sniff_magic(path: str) -> str | None:
     return None
 
 
+# OS/app housekeeping files that are never interesting as "databases" or "config".
+NOISE_NAMES = {
+    "thumbs.db", "ehthumbs.db", "ehthumbs_vista.db", "iconcache.db", ".ds_store", "desktop.ini",
+    "folder.jpg", "albumartsmall.jpg", ".localized", "icon\r", "autorun.inf", ".directory",
+    "pagefile.sys", "hiberfil.sys", "ntuser.dat", "usrclass.dat",
+}
+NOISE_PREFIXES = ("~$", "._", ".~lock.")
+
+
+def is_noise_name(name: str) -> bool:
+    low = name.lower()
+    return low in NOISE_NAMES or low.startswith(NOISE_PREFIXES) or low.endswith(":zone.identifier")
+
+
 def classify(name: str, ext: str, magic_kind: str | None) -> list[str]:
     tags: list[str] = []
+    if is_noise_name(name):
+        return tags
     if ext in EXT_DB or magic_kind == "database":
         tags.append(TAG_DATABASE)
     if ext in EXT_EXEC or magic_kind == "executable":

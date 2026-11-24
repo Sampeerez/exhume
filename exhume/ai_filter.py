@@ -1,0 +1,480 @@
+"""Local-AI judgement of findings: is each match REAL data or a false positive?
+
+Regexes and checksums only know that a string *looks* right. Whether ``3.2.2.1`` is an
+IP address or a manual's section number, or ``4749999999999994`` a card or an invoice
+total, depends on the surrounding text, and that is what a language model is good at.
+
+Engines (first one that works wins):
+
+1. **Bundled**: a small open model (Qwen2.5-3B-Instruct, Q4) run in-process with
+   ``llama-cpp-python``. Exhume installs the package and downloads the model by itself
+   on first use (~2.1 GB, cached in ``~/.cache/exhume``); nothing else has to be installed.
+2. **Ollama**, if a local server is already running.
+
+Privacy: everything runs on this machine. The only network traffic is the one-time
+download of the model file from Hugging Face (no scan data is sent).
+
+Cost control: matches that already failed their offline/network check are not judged,
+identical values/contexts are judged once, and inside one (file, detector) group the
+remaining matches inherit the verdict when the first samples all agree.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import urllib.request
+from pathlib import Path
+
+from .console import Colors, eprint
+from .models import FileResult, Finding, Verified
+
+MODEL_URL = ("https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/"
+             "qwen2.5-3b-instruct-q4_k_m.gguf")
+MODEL_FILE = "qwen2.5-3b-instruct-q4_k_m.gguf"
+MODEL_MIN_BYTES = 2_000_000_000
+FALSE_THRESHOLD = 0.70   # confidence needed before a match is hidden as a false positive
+
+# Detectors whose matches are ambiguous without context. Provider-specific tokens
+# (AWS, GitHub, ...) and live-verified credentials are never second-guessed.
+JUDGED = {
+    "Public IPv4", "Private IP (RFC1918)", "Credit card", "IBAN",
+    "Spanish DNI/NIF", "Spanish NIE", "US SSN",
+    "Credential assignment", "Credential in XML/property",
+}
+_JUDGED_PREFIX = ("High-entropy string",)
+
+_GUIDE = {
+    "Public IPv4": "a network IP address of a host, server, router or device",
+    "Private IP (RFC1918)": "a network IP address of a host, server, router or device",
+    "Credit card": "a payment card number (PAN)",
+    "IBAN": "a bank account number (IBAN)",
+    "Spanish DNI/NIF": "the national ID number of a person",
+    "Spanish NIE": "the foreigner ID number of a person",
+    "US SSN": "a US social security number",
+    "Credential assignment": "an actual password / secret value that someone set",
+    "Credential in XML/property": "an actual password / secret value that someone set",
+    "secret": "a real secret key or token",
+}
+_SYSTEM = (
+    "You review matches from a sensitive-data scanner during an authorized security audit. "
+    "Decide from the surrounding text whether the value is genuinely the kind of data the scanner "
+    "claims (REAL), or a false positive such as a version, section number, price, total, reference, "
+    "serial number, placeholder or garbled data (FALSE). Reply with exactly one word: REAL or FALSE."
+)
+
+_Q = ("Value: {v}\nText around it:\n---\n{c}\n---\n"
+      "Is the value genuinely the claimed data (REAL) or a false positive (FALSE)?")
+
+# (value, surrounding text, answer) examples shown to the model before the real question
+_SHOTS = {
+    "ip": [("10.158.14.103", "servidor sql 10.158.14.103 puerto 1433", "REAL"),
+           ("3.2.2.1", "3.2.2.1 Seguridad en el almacén", "FALSE"),
+           ("192.168.1.10", "ssh admin@192.168.1.10", "REAL"),
+           ("2.7.5.4", "Versión del firmware 2.7.5.4 instalada", "FALSE")],
+    "card": [("4539148803436467", "Tarjeta Visa 4539 1488 0343 6467 caduca 12/27", "REAL"),
+             ("412499999999994", "TOTAL 62.412499999999994", "FALSE"),
+             ("537499999999994", "PRECIO STOCK 537499999999994", "FALSE"),
+             ("5500000000000004", "Pago con tarjeta Mastercard 5500 0000 0000 0004 CVV 123", "REAL")],
+    "iban": [("ES9121000418450200051332", "Transferencia a la cuenta IBAN ES91 2100 0418 4502 0005 1332", "REAL"),
+             ("ES9121000418450200051332", "Pedido ES9121000418450200051332-2024 lote 5", "FALSE"),
+             ("ES7921000813610123456789", "Datos bancarios: ES79 2100 0813 6101 2345 6789 (La Caixa)", "REAL"),
+             ("ES7921000813610123456789", "ref. interna ES7921000813610123456789.pdf", "FALSE")],
+    "id": [("12345678Z", "DNI del titular: 12345678Z", "REAL"),
+           ("12345678Z", "Ref. pedido 12345678Z-2024-001", "FALSE"),
+           ("12345678Z", "Juan Pérez García, NIF 12345678Z, calle Mayor 3", "REAL"),
+           ("87654321X", "código de lote 87654321X", "FALSE")],
+    "cred": [("Sup3rS3cret!2024", "db_password = 'Sup3rS3cret!2024'", "REAL"),
+             ("[Password]", "; Password=[Password]", "FALSE"),
+             ("Winter2024!", "usuario: admin  contraseña: Winter2024!", "REAL"),
+             ("password", "Introduzca su password para continuar", "FALSE")],
+    "secret": [("kJ8sd9Fh2Lq0Zx7Vb3Nm1Pw5Rt6Yu4", "api_key=kJ8sd9Fh2Lq0Zx7Vb3Nm1Pw5Rt6Yu4", "REAL"),
+               ("3f7a9c1d5e8b2f4a6c0d9e1b7a3f5c82", "sha256 checksum 3f7a9c1d5e8b2f4a6c0d9e1b7a3f5c82", "FALSE")],
+}
+_DIGITS = re.compile(r"\d+")
+_PROMPT_CTX_CAP = 700
+_SAMPLE_BEFORE_PROPAGATE = 3
+_GROUP_FULL_LIMIT = 5      # groups up to this size are always judged item by item
+_GROUP_HARD_CAP = 40       # max items judged per (file, detector) group
+
+
+# ---------------------------------------------------------------- engines
+
+def cache_dir() -> Path:
+    base = os.environ.get("EXHUME_HOME") or os.path.join(os.path.expanduser("~"), ".cache", "exhume")
+    return Path(base) / "models"
+
+
+class LlamaEngine:
+    name = "bundled Qwen2.5-3B"
+
+    def __init__(self, model_path: str):
+        from llama_cpp import Llama  # type: ignore
+        self._llm = Llama(model_path=model_path, n_ctx=4096, n_threads=os.cpu_count() or 4,
+                          n_gpu_layers=-1, verbose=False)
+        self._real = self._llm.tokenize(b"REAL", add_bos=False)[0]
+        self._false = self._llm.tokenize(b"FALSE", add_bos=False)[0]
+        self._fmt = None
+        try:
+            from llama_cpp.llama_chat_format import Jinja2ChatFormatter  # type: ignore
+            tpl = self._llm.metadata.get("tokenizer.chat_template")
+            if tpl:
+                self._fmt = Jinja2ChatFormatter(template=tpl, eos_token="<|im_end|>", bos_token="")
+        except Exception:
+            self._fmt = None
+
+    def _prompt(self, messages: list[dict]) -> str:
+        if self._fmt:
+            try:
+                return self._fmt(messages=messages).prompt
+            except Exception:
+                pass
+        out = "".join(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>\n" for m in messages)
+        return out + "<|im_start|>assistant\n"
+
+    def ask(self, system: str, user: str, shots: tuple = ()) -> str:
+        """Return "FALSE" only when the model is clearly confident; otherwise "REAL".
+
+        Dropping a real finding is worse than keeping a noisy one, so the verdict is read from the
+        probabilities of the first answer token: FALSE needs FALSE_THRESHOLD of the REAL/FALSE mass.
+        """
+        return "FALSE" if self.p_false(system, user, shots) >= FALSE_THRESHOLD else "REAL"
+
+    def _eval_cached(self, text: str) -> None:
+        """Evaluate *text*, reusing the KV cache of the shared (system + examples) prefix."""
+        llm = self._llm
+        cut = text.rfind("<|im_start|>user")
+        prefix, suffix = (text[:cut], text[cut:]) if cut > 0 else ("", text)
+        if prefix:
+            ptoks = llm.tokenize(prefix.encode(), add_bos=False, special=True)
+            if (llm.n_tokens >= len(ptoks)) and list(llm._input_ids[:len(ptoks)]) == ptoks:
+                llm.n_tokens = len(ptoks)          # rewind to the cached prefix
+            else:
+                llm.reset()
+                llm.eval(ptoks)
+            llm.eval(llm.tokenize(suffix.encode(), add_bos=False, special=True))
+        else:
+            llm.reset()
+            llm.eval(llm.tokenize(text.encode(), add_bos=False, special=True))
+
+    def p_false(self, system: str, user: str, shots: tuple = ()) -> float:
+        import math
+
+        import numpy as np
+        messages = [{"role": "system", "content": system}]
+        for q, a in shots:
+            messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
+        messages.append({"role": "user", "content": user})
+        self._eval_cached(self._prompt(messages))
+        logits = np.ctypeslib.as_array(self._llm._ctx.get_logits(), shape=(self._llm.n_vocab(),))
+        a, b = float(logits[self._real]), float(logits[self._false])
+        m = max(a, b)
+        pr, pf = math.exp(a - m), math.exp(b - m)
+        return pf / (pr + pf)
+
+
+class OllamaEngine:
+    def __init__(self, url: str, model: str):
+        self.url, self.model = url.rstrip("/"), model
+        self.name = f"Ollama {model}"
+
+    def ask(self, system: str, user: str, shots: tuple = ()) -> str:
+        examples = "".join(f"{q}\nAnswer: {a}\n\n" for q, a in shots)
+        body = json.dumps({"model": self.model, "stream": False, "prompt": f"{system}\n\n{examples}{user}",
+                           "options": {"temperature": 0, "num_predict": 4}}).encode()
+        req = urllib.request.Request(self.url + "/api/generate", data=body,
+                                     headers={"Content-Type": "application/json"})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=60) as r:
+            return json.loads(r.read()).get("response", "")
+
+
+def _download(url: str, dest: Path) -> bool:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_suffix(dest.suffix + ".part")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "exhume-model-fetch"})
+        with urllib.request.urlopen(req, timeout=60) as r, open(part, "wb") as f:
+            total = int(r.headers.get("Content-Length") or 0)
+            done = 0
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
+                done += len(chunk)
+                if total and (done // (1 << 20)) % 10 == 0:
+                    eprint(f"\r{Colors.GR}  downloading model {done / 1e6:,.0f}/{total / 1e6:,.0f} MB "
+                           f"({done * 100 // total}%){Colors.END}", end="")
+        eprint("")
+        if total and done != total:
+            return False
+        os.replace(part, dest)
+        return True
+    except Exception as exc:
+        eprint(f"\n{Colors.Y}Model download failed: {exc}{Colors.END}")
+        return False
+
+
+def _install_llama_cpp() -> bool:
+    import importlib
+
+    from .deps import pip_install
+    eprint(f"{Colors.CY}Installing the local AI runtime (llama-cpp-python, first run only; this can "
+           f"take a few minutes)...{Colors.END}")
+    index = "metal" if sys.platform == "darwin" else "cpu"
+    ok = _pip_with_index(index) or pip_install("llama-cpp-python", timeout=1800)
+    importlib.invalidate_caches()
+    return ok
+
+
+def _pip_with_index(index: str) -> bool:
+    import subprocess
+    cmd = [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
+           "--prefer-binary", "--only-binary=llama-cpp-python", "--extra-index-url",
+           f"https://abetlen.github.io/llama-cpp-python/whl/{index}", "llama-cpp-python"]
+    for extra in ([], ["--break-system-packages"]):
+        try:
+            if subprocess.run(cmd + extra, capture_output=True, timeout=600).returncode == 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def load_engine(autoinstall: bool = True, gguf: str = "", ollama_url: str = "",
+                ollama_model: str = "") -> object | None:
+    """Return a ready engine or None (with a message explaining why)."""
+    try:
+        import llama_cpp  # type: ignore  # noqa: F401
+        have = True
+    except Exception:
+        have = False
+    if not have and autoinstall:
+        have = _install_llama_cpp()
+        if not have:
+            eprint(f"{Colors.Y}Could not install llama-cpp-python (needs a C/C++ toolchain on this "
+                   f"Python); trying Ollama instead.{Colors.END}")
+    if have:
+        path = Path(gguf) if gguf else cache_dir() / MODEL_FILE
+        if not path.exists() or path.stat().st_size < MODEL_MIN_BYTES:
+            if gguf or not autoinstall:
+                eprint(f"{Colors.Y}AI model not found at {path}.{Colors.END}")
+            else:
+                eprint(f"{Colors.CY}Downloading the local AI model (~2.1 GB, one time, from "
+                       f"Hugging Face)...{Colors.END}")
+                if not _download(MODEL_URL, path):
+                    path = None  # type: ignore[assignment]
+        if path and path.exists():
+            try:
+                return LlamaEngine(str(path))
+            except Exception as exc:
+                eprint(f"{Colors.Y}Could not start the bundled model: {exc}{Colors.END}")
+    # Fallback: an Ollama server the user already runs.
+    from .ai import available
+    url = ollama_url or "http://localhost:11434"
+    models = available(url)
+    if models:
+        return OllamaEngine(url, ollama_model or models[0])
+    return None
+
+
+# ---------------------------------------------------------------- judging
+
+def _kind(f: Finding) -> str:
+    d = f.detector
+    if "IPv4" in d or "IP (" in d:
+        return "ip"
+    if d == "Credit card":
+        return "card"
+    if d == "IBAN":
+        return "iban"
+    if d.startswith(("Spanish", "US SSN")):
+        return "id"
+    if d.startswith("High-entropy"):
+        return "secret"
+    return "cred"
+
+
+def _is_judged(f: Finding) -> bool:
+    if f.verified in (Verified.INVALID, Verified.LIVE) or f.ai_verdict:
+        return False
+    return f.detector in JUDGED or f.detector.startswith(_JUDGED_PREFIX)
+
+
+def _claim(f: Finding) -> str:
+    return _GUIDE.get(f.detector) or _GUIDE["secret"]
+
+
+def _shots(f: Finding) -> tuple:
+    claim = _claim(f)
+    return tuple((f"The scanner flagged this value as {claim}.\n" + _Q.format(v=v, c=c), ans)
+                 for v, c, ans in _SHOTS[_kind(f)])
+
+
+def _prompt(f: Finding) -> str:
+    own = next((t for n, t in (f.context_block or []) if n == f.line), None)
+    lines = (own if own is not None else f.context or "")[:_PROMPT_CTX_CAP]
+    return f"The scanner flagged this value as {_claim(f)}.\n" + _Q.format(v=f.secret or f.redacted, c=lines)
+
+
+def _parse(answer: str) -> str | None:
+    a = (answer or "").strip().upper()
+    if a.startswith("REAL"):
+        return "real"
+    if a.startswith("FALSE") or a.startswith("FAKE") or a.startswith("NO"):
+        return "false"
+    return None
+
+
+def _ctx_key(f: Finding) -> tuple:
+    return (f.detector, _DIGITS.sub("#", f.context or "")[:160], os.path.splitext(f.path)[1].lower())
+
+
+def _label(f: Finding, verdict: str, how: str) -> None:
+    f.ai_verdict = verdict
+    f.ai_note = how
+
+
+def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
+    """Judge ambiguous findings in place. Returns counters for reporting."""
+    cand = [f for r in results for f in r.findings if _is_judged(f)]
+    stats = {"candidates": len(cand), "asked": 0, "real": 0, "false": 0, "inherited": 0, "skipped": 0}
+    if not cand:
+        return stats
+    # most severe / most relevant first so the call budget is spent where it matters
+    cand.sort(key=lambda f: (-int(f.severity), f.path, f.line))
+    groups: dict[tuple, list[Finding]] = {}
+    for f in cand:
+        groups.setdefault((f.path, f.detector), []).append(f)
+
+    by_value: dict[tuple, str] = {}
+    by_ctx: dict[tuple, str] = {}
+    name = getattr(engine, "name", "local AI")
+
+    def ask(f: Finding) -> str | None:
+        k1, k2 = (f.detector, f.secret), _ctx_key(f)
+        hit = by_value.get(k1) or by_ctx.get(k2)
+        if hit:
+            return hit
+        if stats["asked"] >= max_calls:
+            return None
+        stats["asked"] += 1
+        if stats["asked"] % 25 == 0:
+            eprint(f"\r{Colors.GR}  AI judged {stats['asked']} matches...{Colors.END}", end="")
+        try:
+            v = _parse(engine.ask(_SYSTEM, _prompt(f), _shots(f)))
+        except Exception:
+            return None
+        if v:
+            by_value[k1] = v
+            by_ctx[k2] = v
+        return v
+
+    for items in groups.values():
+        verdicts: list[str] = []
+        limit = len(items) if len(items) <= _GROUP_FULL_LIMIT else _SAMPLE_BEFORE_PROPAGATE
+        idx = 0
+        while idx < len(items) and idx < limit:
+            v = ask(items[idx])
+            if v:
+                _label(items[idx], v, f"judged by {name}")
+                stats[v] += 1
+                verdicts.append(v)
+            else:
+                stats["skipped"] += 1
+            idx += 1
+        rest = items[idx:]
+        if not rest:
+            continue
+        if verdicts and len(set(verdicts)) == 1 and len(verdicts) >= _SAMPLE_BEFORE_PROPAGATE:
+            for f in rest:      # homogeneous group: inherit (and still check cached identical values)
+                v = by_value.get((f.detector, f.secret)) or verdicts[0]
+                _label(f, v, f"same as {len(verdicts)} sampled matches in this file ({name})")
+                stats["inherited"] += 1
+                stats[v] += 1
+        else:                   # mixed group: judge individually up to the cap
+            for f in rest[:max(0, _GROUP_HARD_CAP - idx)]:
+                v = ask(f)
+                if v:
+                    _label(f, v, f"judged by {name}")
+                    stats[v] += 1
+                else:
+                    stats["skipped"] += 1
+            stats["skipped"] += max(0, len(rest) - max(0, _GROUP_HARD_CAP - idx))
+    eprint("")
+    return stats
+
+
+# ---------------------------------------------------------------- assets (databases / config files)
+
+_ASSET_SYSTEM = (
+    "You help an auditor decide which files found on a file share deserve attention. Decide from the "
+    "file name, location and metadata whether the file is likely to hold credentials, personal or "
+    "business data, or deployment/configuration details of interest. Reply with exactly one word: "
+    "REAL (worth listing) or FALSE (noise)."
+)
+_ASSET_NOISE = (
+    "OS/app housekeeping and caches (Thumbs.db, .DS_Store, desktop.ini, thumbnails, icon caches), "
+    "browser/IDE/editor caches, build output, localization/resource/theme files, package or "
+    "dependency metadata, sample/template files, logs of no value, and vendor program data"
+)
+
+
+def _a(tag: str, name: str, loc: str, ans: str) -> tuple:
+    return (f"Type: {tag}\nFile: {name}\nLocation (tail): .../{loc}\n"
+            "Worth an auditor's attention (REAL) or noise (FALSE)?", ans)
+
+
+_ASSET_SHOTS = (
+    _a("database", "Thumbs.db", "Fotos/Vacaciones", "FALSE"),
+    _a("database", "clientes.db", "Contabilidad/Datos", "REAL"),
+    _a("config", "app.config", "Servidor/ERP/bin", "REAL"),
+    _a("config", "messages_es.properties", "Aplicacion/lib/i18n", "FALSE"),
+    _a("config", "web.config", "inetpub/wwwroot", "REAL"),
+    _a("config", "package-lock.json", "proyecto/web", "FALSE"),
+    _a("database", "IconCache.db", "Users/Pepe/AppData", "FALSE"),
+    _a("config", "settings.ini", "Backups/Servidor", "REAL"),
+)
+
+
+def _asset_prompt(r: FileResult, tag: str) -> str:
+    tail = "/".join(r.path.replace(" ::> ", "/").split("/")[-4:])
+    meta = f"Type: {tag}\nFile: {r.name}\nLocation (tail): .../{tail}\n"
+    di = r.db_info or {}
+    if di.get("tables"):
+        meta += "Tables: " + ", ".join(f"{t['name']}({t.get('rows')})" for t in di["tables"][:12]) + "\n"
+    if di.get("sensitive_columns"):
+        meta += "Sensitive-looking columns: " + ", ".join(di["sensitive_columns"][:12]) + "\n"
+    return meta + "Worth an auditor's attention (REAL) or noise (FALSE)?"
+
+
+def judge_assets(results: list[FileResult], engine, max_calls: int = 1500) -> dict:
+    """Mark database/config assets the AI considers noise. One call per distinct (name, type)."""
+    stats = {"asked": 0, "real": 0, "false": 0, "skipped": 0}
+    cache: dict[tuple, str | None] = {}
+    for r in results:
+        tag = "database" if "database" in r.tags else "config" if "config" in r.tags else None
+        if not tag or "sensitive_name" in r.tags or "key_material" in r.tags:
+            continue          # secrets-looking names / keys are never hidden
+        if (r.db_info or {}).get("sensitive_columns") or any(not f.hidden for f in r.findings):
+            r.ai_verdict = "real"      # holds findings / sensitive columns: always worth listing
+            continue
+        key = (tag, r.name.lower(), bool(r.db_info and r.db_info.get("tables")))
+        if key not in cache:
+            if stats["asked"] >= max_calls:
+                stats["skipped"] += 1
+                continue
+            stats["asked"] += 1
+            try:
+                cache[key] = _parse(engine.ask(_ASSET_SYSTEM, _asset_prompt(r, tag), _ASSET_SHOTS))
+            except Exception:
+                cache[key] = None
+        v = cache[key]
+        if v:
+            r.ai_verdict = v
+            stats[v] += 1
+        else:
+            stats["skipped"] += 1
+    return stats

@@ -51,8 +51,8 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
     if cfg.only_verified:
         findings = [f for f in findings if f.verified is Verified.LIVE]
 
-    invalid = [f for f in findings if f.verified is Verified.INVALID]
-    findings = [f for f in findings if f.verified is not Verified.INVALID]
+    invalid = [f for f in findings if f.hidden]
+    findings = [f for f in findings if not f.hidden]
     by_sev: dict[int, list] = defaultdict(list)
     for f in findings:
         by_sev[int(f.severity)].append(f)
@@ -84,8 +84,9 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
         print(f"{C.G}No{extra} findings.{C.END}")
 
     if invalid:
-        print(f"\n{C.GR}{len(invalid)} match(es) failed validation (bad checksum / no host answered) and are "
-              f"hidden here; they remain in the HTML (toggle) and CSV/JSON exports.{C.END}")
+        print(f"\n{C.GR}{len(invalid)} match(es) failed validation or were judged false positives "
+              f"(checksum / host check / local AI) and are hidden here; they remain in the HTML (toggle) "
+              f"and CSV/JSON exports.{C.END}")
 
     if cfg.only_verified:
         print()
@@ -97,7 +98,7 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
 
 
 def _print_databases(results: list[FileResult]) -> None:
-    dbs = [r for r in results if "database" in r.tags]
+    dbs = [r for r in results if "database" in r.tags and r.ai_verdict != "false"]
     if not dbs:
         return
     print(f"\n{C.M}{C.BOLD}── Databases ({len(dbs)}) ──{C.END}")
@@ -119,7 +120,7 @@ def _print_assets(results: list[FileResult]) -> None:
         ("archive", "Archives", C.GR),
     ]
     for tag, title, color in sections:
-        hits = [r for r in results if tag in r.tags]
+        hits = [r for r in results if tag in r.tags and r.ai_verdict != "false"]
         if not hits:
             continue
         print(f"\n{color}{C.BOLD}── {title} ({len(hits)}) ──{C.END}")

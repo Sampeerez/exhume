@@ -50,6 +50,8 @@ def _finding_dict(f: Finding, mask: bool, line_pairs: list[tuple[str, str]]) -> 
         "path": f.path,
         "verified": f.verified.value,
         "verifier": f.verifier,
+        "ai": f.ai_verdict,
+        "ai_note": f.ai_note,
         "detail": f.detail,
         "fingerprint": f.fingerprint(),
     }
@@ -70,7 +72,7 @@ def build_payload(results: list[FileResult], stats: ScanStats, mask: bool = Fals
     assets: dict[str, list] = defaultdict(list)
     for r in results:
         for tag in r.tags:
-            assets[tag].append({"path": r.path, "size": r.size})
+            assets[tag].append({"path": r.path, "size": r.size, "ai": r.ai_verdict})
 
     databases = [{"path": r.path, **(r.db_info or {})} for r in results if r.db_info]
     notes = [{"path": r.path, "note": r.note} for r in results if r.note]
@@ -84,6 +86,8 @@ def build_payload(results: list[FileResult], stats: ScanStats, mask: bool = Fals
             "files_seen": stats.seen,
             "files_scanned": stats.scanned,
             "coverage": stats.coverage,
+            "ai_engine": stats.ai_engine,
+            "ai_filter": stats.ai_filter,
             "nested": stats.nested,
             "git_blobs": stats.git_blobs,
             "seconds": round(stats.elapsed, 2),
@@ -95,9 +99,11 @@ def build_payload(results: list[FileResult], stats: ScanStats, mask: bool = Fals
             "total_findings": len(public),
             "verified_live": stats.verified_live,
             "invalid": sum(1 for f in findings if f.verified.value == "invalid"),
+            "ai_false": sum(1 for f in findings if f.ai_verdict == "false"),
+            "hidden": sum(1 for f in findings if f.hidden),
             "suppressed_by_baseline": stats.suppressed,
             "by_severity": {
-                sev.label: sum(1 for f in findings if f.severity == sev and f.verified.value != "invalid")
+                sev.label: sum(1 for f in findings if f.severity == sev and not f.hidden)
                 for sev in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM)
             },
             "by_type": dict(Counter(f.detector for f in findings)),
