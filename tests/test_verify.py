@@ -48,3 +48,13 @@ def test_aws_sigv4_dead(monkeypatch):
     monkeypatch.setattr(verifiers, "_http", lambda *a, **k: (403, "forbidden"))
     status, _ = verifiers.verify_aws_pair("AKIA" + "A" * 16, "s" * 40)
     assert status is Verified.DEAD
+
+
+def test_ip_verifier_marks_open_port_valid_and_unreachable_invalid(monkeypatch):
+    from exhume.models import Verified
+    from exhume.verify import network
+    monkeypatch.setattr(network, "_tcp_probe", lambda ip: "port 443 open" if ip == "1.1.1.1" else None)
+    monkeypatch.setattr(network, "_ptr", lambda ip: None)
+    assert network.verify_ip("1.1.1.1") == (Verified.VALID, "port 443 open")
+    status, _ = network.verify_ip("203.0.113.9")
+    assert status is Verified.INVALID

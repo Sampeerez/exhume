@@ -11,6 +11,7 @@ def write_csv(payload: dict, path: str) -> None:
         for h in payload["findings"]:
             w.writerow([
                 h["severity_label"],
-                {"live": "LIVE", "dead": "DEAD", "unknown": ""}.get(h["verified"], ""),
+                {"live": "LIVE", "dead": "DEAD", "valid": "VALID",
+                 "invalid": "INVALID"}.get(h["verified"], ""),
                 h["detector"], h["path"], h["line"], h["value"], h.get("detail") or "",
             ])

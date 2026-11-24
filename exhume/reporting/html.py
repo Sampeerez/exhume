@@ -56,7 +56,7 @@ tbody tr.row{cursor:pointer}
 tbody tr.row:hover{background:#121a28}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.03em}
 .p3{background:#3a1420;color:#fda4af}.p2{background:#3a2c12;color:#fcd34d}.p1{background:#0e2c3f;color:#7dd3fc}
-.vbadge{font-weight:800;font-size:12px}.v-live{color:var(--live)}.v-dead{color:#64748b}
+.vbadge{font-weight:800;font-size:12px}.v-live,.v-valid{color:var(--live)}.v-dead,.v-invalid{color:#64748b}
 .det{color:var(--txt)}
 .loc{color:var(--mut);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
 .loc{word-break:break-all}
@@ -97,7 +97,7 @@ h3{margin:16px 0 4px;color:#cbd5e1;font-size:13.5px}
 .btn.danger:hover{border-color:var(--crit);color:#fda4af}
 .x{background:none;border:0;color:#64748b;cursor:pointer;font-size:15px;padding:2px 7px;border-radius:6px}
 .x:hover{background:#3a1420;color:#fda4af}
-tr.row.dis{opacity:.45}
+tr.row.dis,tr.row.inv{opacity:.5}
 tr.row.dis .det,tr.row.dis .val,tr.row.dis .loc{text-decoration:line-through}
 .rbanner{display:none;background:#10231a;border:1px solid #1f5a3a;color:#86efac;border-radius:10px;padding:9px 14px;margin-bottom:14px;font-size:13px}
 body.report .rbanner{display:block}
@@ -166,6 +166,7 @@ footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
   <select id="detsel" onchange="render()"><option value="">All detectors</option>__DETOPTS__</select>
   <label class="tog"><input type="checkbox" id="liveonly" onchange="render()"> Verified only</label>
   <label class="tog"><input type="checkbox" id="expall" onchange="toggleAll(this.checked)"> Expand all</label>
+ <label class="tog"><input type="checkbox" id="hideinv" checked onchange="render()" title="Hide matches that failed their check (bad IBAN/DNI/card checksum, IP with no host)"> Hide invalid</label>
   <label class="tog"><input type="checkbox" id="showdis" onchange="render()"> Show dismissed</label>
   <button class="btn" onclick="copyLive()">Copy live creds</button>
   <button class="btn noreport" onclick="dismissFiltered()" title="Mark every finding matching the current filters as false positive">Dismiss filtered</button>
@@ -201,6 +202,11 @@ const SKEY='exhume-dismissed:'+ROOT;
 let DIS=new Set(); try{DIS=new Set(JSON.parse(localStorage.getItem(SKEY)||'[]'));}catch(e){}
 function saveDis(){try{localStorage.setItem(SKEY,JSON.stringify([...DIS]));}catch(e){}}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function vbadge(f){
+ return {live:'<span class="vbadge v-live">● LIVE</span>',dead:'<span class="vbadge v-dead">● dead</span>',
+  valid:'<span class="vbadge v-valid" title="Passed its check (checksum OK / host answers)">● VALID</span>',
+  invalid:'<span class="vbadge v-invalid" title="Failed its check (bad checksum / no host answered)">● invalid</span>'}[f.verified]||'';
+}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1300);}
 function copy(txt){navigator.clipboard.writeText(txt).then(()=>toast('Copied')).catch(()=>toast('Copy failed'));}
 // ---- censoring (report mode) ----
@@ -235,6 +241,7 @@ function match(f){
  const liveonly=document.getElementById('liveonly').checked;
  const showdis=document.getElementById('showdis').checked&&!REPORT;
  if(!showdis && DIS.has(f.fingerprint)) return false;
+ if((document.getElementById('hideinv').checked||REPORT) && f.verified==='invalid') return false;
  if(fSev==='live'){ if(f.verified!=='live') return false; }
  else if(fSev!=='all'){ if(String(f.severity)!==fSev) return false; }
  if(liveonly && f.verified!=='live') return false;
@@ -251,7 +258,7 @@ function detailHTML(f,i){
    code+='<div class="ln'+hit+'"><span class="gutter">'+n+'</span><span class="src">'+hi(t,f)+'</span></div>';
  });
  if(!code) code='<div class="ln"><span class="src">'+hi(f.context,f)+'</span></div>';
- const vb = f.verified==='live'?'<span class="vbadge v-live">● LIVE</span>':(f.verified==='dead'?'<span class="vbadge v-dead">● dead</span>':'unknown');
+ const vb = vbadge(f)||'unknown';
  const dis=DIS.has(f.fingerprint);
  return '<div class="detailbox">'
   +'<div class="dgrid">'
@@ -273,8 +280,8 @@ function detailHTML(f,i){
   +'</div>';
 }
 function rowFor(f,i){
- const tr=document.createElement('tr'); tr.className='row'+(DIS.has(f.fingerprint)?' dis':'');
- const vb=f.verified==='live'?'<span class="vbadge v-live">● LIVE</span>':(f.verified==='dead'?'<span class="vbadge v-dead">● dead</span>':'');
+ const tr=document.createElement('tr'); tr.className='row'+(DIS.has(f.fingerprint)?' dis':'')+(f.verified==='invalid'?' inv':'');
+ const vb=vbadge(f);
  const loc=esc(relPath(f.path))+':'+f.line+(f.col?(':'+f.col):'');
  const dis=DIS.has(f.fingerprint);
  tr.innerHTML='<td><span class="caret">▸</span></td>'
@@ -302,8 +309,10 @@ function render(resetPage){
  view.slice(page*PAGE,(page+1)*PAGE).forEach(i=>frag.appendChild(rowFor(DATA.findings[i],i)));
  tb.appendChild(frag);
  if(!view.length) tb.innerHTML='<tr><td colspan="7" class="empty">No findings match the current filters.</td></tr>';
+ let ninv=0; if(document.getElementById('hideinv').checked||REPORT) DATA.findings.forEach(f=>{if(f.verified==='invalid')ninv++;});
+ const ni=ninv?(' · '+ninv.toLocaleString()+' invalid hidden'):'';
  const nd=DIS.size?(' · '+DIS.size.toLocaleString()+' dismissed'):'';
- document.getElementById('count').textContent=view.length.toLocaleString()+' / '+DATA.findings.length.toLocaleString()+' findings'+nd;
+ document.getElementById('count').textContent=view.length.toLocaleString()+' / '+DATA.findings.length.toLocaleString()+' findings'+ni+nd;
  renderPager(pages); updateCards();
 }
 function updateCards(){ // totals minus dismissed (dismissed ones can only be among the embedded findings)
@@ -524,7 +533,9 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
     m, rs = payload["meta"], payload["summary"]
     sev = rs["by_severity"]
     c3, c2, c1 = sev["CRITICAL"], sev["HIGH"], sev["MEDIUM"]
-    total = rs["total_findings"] or 1
+    inv = rs.get("invalid", 0)
+    shown_total = rs["total_findings"] - inv      # cards/bar exclude matches that failed validation
+    total = shown_total or 1
     bar = (f"<i style='width:{c3 / total * 100:.1f}%;background:var(--crit)'></i>"
            f"<i style='width:{c2 / total * 100:.1f}%;background:var(--high)'></i>"
            f"<i style='width:{c1 / total * 100:.1f}%;background:var(--med)'></i>")
@@ -542,6 +553,8 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
     cov_parts = [f"{v:,} {_lbl.get(k, k)}" for k, v in cov.items() if v]
     if cov_parts:
         metaline += "<br>Coverage: " + " · ".join(cov_parts)
+    if inv:
+        metaline += f"<br>{inv:,} matches failed validation (bad checksum / no host answered), hidden by default"
     mask_badge = '<span class="badge-mask">MASKED</span>' if m.get("masked") else ""
 
     all_f = payload["findings"]
@@ -565,7 +578,7 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
            .replace("__MASKBADGE__", mask_badge)
            .replace("__METALINE__", metaline)
            .replace("__C3__", str(c3)).replace("__C2__", str(c2)).replace("__C1__", str(c1))
-           .replace("__LIVE__", str(rs["verified_live"])).replace("__TOTAL__", str(rs["total_findings"]))
+           .replace("__LIVE__", str(rs["verified_live"])).replace("__TOTAL__", str(shown_total))
            .replace("__BAR__", bar)
            .replace("__AISECTION__", _ai_section(m))
            .replace("__DETOPTS__", _severity_options(rs["by_type"]))

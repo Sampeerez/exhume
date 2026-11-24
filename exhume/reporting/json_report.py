@@ -49,6 +49,7 @@ def _finding_dict(f: Finding, mask: bool, line_pairs: list[tuple[str, str]]) -> 
         "context_block": block,
         "path": f.path,
         "verified": f.verified.value,
+        "verifier": f.verifier,
         "detail": f.detail,
         "fingerprint": f.fingerprint(),
     }
@@ -93,9 +94,10 @@ def build_payload(results: list[FileResult], stats: ScanStats, mask: bool = Fals
         "summary": {
             "total_findings": len(public),
             "verified_live": stats.verified_live,
+            "invalid": sum(1 for f in findings if f.verified.value == "invalid"),
             "suppressed_by_baseline": stats.suppressed,
             "by_severity": {
-                sev.label: sum(1 for f in findings if f.severity == sev)
+                sev.label: sum(1 for f in findings if f.severity == sev and f.verified.value != "invalid")
                 for sev in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM)
             },
             "by_type": dict(Counter(f.detector for f in findings)),

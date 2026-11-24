@@ -23,6 +23,8 @@ class Verified(enum.Enum):
     LIVE = "live"          # confirmed valid against the provider API
     DEAD = "dead"          # rejected by the provider (401/403)
     UNKNOWN = "unknown"    # could not be determined (no network, no verifier)
+    VALID = "valid"        # non-credential data confirmed real (checksum OK / host answers)
+    INVALID = "invalid"    # non-credential data that failed its check (bad checksum / no host)
 
 
 @dataclass
@@ -108,4 +110,4 @@ class ScanStats:
 
 def finding_sort_key(f: Finding) -> tuple:
     """Sort: live credentials first, then by severity, then by path."""
-    return (f.verified is not Verified.LIVE, -int(f.severity), f.path, f.line)
+    return (f.verified is not Verified.LIVE, f.verified is Verified.INVALID, -int(f.severity), f.path, f.line)

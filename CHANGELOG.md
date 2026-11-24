@@ -19,14 +19,19 @@ All notable versions of Exhume.
 - Coverage summary (content scanned / media skipped / unreadable / too big …) in console, JSON and HTML.
 
 ### Changed
-- Fewer false positives: dummy credit-card numbers, placeholders like `[Password]`, binary garbage
-  decoded as text, and card/ID/IBAN matches inside strings extracted from binaries are dropped.
-- IBAN (mod-97 + country length), Spanish DNI/NIF and NIE (check letter) are now validated, and
-  IPv4 matches are dropped when they look like numbered headings/versions (`3.2.2.1 Title`) or, for
-  public IPs, when the line has no host/network context.
+- Fewer false positives in credential detection: placeholders like `[Password]` and binary garbage
+  decoded as text are dropped.
 - Sensible defaults, no flags needed: the HTML report opens automatically and a CSV with every
   finding is always written (opt out with `--no-open` / `--no-csv`).
 - HTML report is paginated (100 rows/page), builds row details lazily and loads data in chunks.
+
+- **Nothing is dropped for being "unreal": it is checked instead.** IBAN (mod-97, country length and
+  Spanish account control digits), credit cards (Luhn, dummy-number detection), DNI/NIF and NIE
+  (control letter) are kept and flagged VALID / INVALID. Every discovered IP is checked against the
+  network (TCP probe on common ports + reverse DNS, deduplicated) and flagged VALID (host answers /
+  has PTR) or INVALID (no response). Disable the network check with `--no-ip-probe`.
+- HTML report: invalid matches are hidden by default behind a "Hide invalid" toggle (with a counter)
+  and excluded from the cards; console shows only a count. CSV/JSON keep them all.
 
 ### Fixed
 - HTML report rendered blank on very large scans (hundreds of thousands of findings / ~850 MB).

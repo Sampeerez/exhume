@@ -74,28 +74,56 @@ def is_luhn(value: str) -> bool:
 
 
 def is_card(value: str) -> bool:
-    """Luhn-valid AND not an obvious dummy/test number (4100000000000004...)."""
+    return check_card(value)[0]
+
+
+def check_card(value: str) -> tuple[bool, str]:
+    """Luhn + brand; flags obvious dummy numbers."""
     digits = "".join(c for c in value if c.isdigit())
     if not luhn_valid(value):
-        return False
-    return digits.count("0") < 7
+        return False, "Luhn check failed"
+    if digits.count("0") >= 7:
+        return False, "dummy/test number (mostly zeros)"
+    brand = ("Visa" if digits[0] == "4" else "Mastercard" if digits[0] == "5" else
+             "Amex" if digits[0] == "3" else "Discover/UnionPay")
+    return True, f"{brand}, Luhn OK"
 
 
 _IBAN_LEN = {"ES": 24, "FR": 27, "DE": 22, "GB": 22, "IT": 27, "PT": 25, "NL": 18, "BE": 16,
              "CH": 21, "AT": 20, "IE": 22, "LU": 20, "AD": 24}
 
 
-def is_iban(value: str) -> bool:
-    """ISO 13616: known country length + mod-97 checksum."""
+_CCC_W = (1, 2, 4, 8, 5, 10, 9, 7, 3, 6)
+
+
+def _ccc_dc(digits: str) -> int:
+    r = 11 - sum(int(d) * w for d, w in zip(digits, _CCC_W)) % 11
+    return {11: 0, 10: 1}.get(r, r)
+
+
+def check_iban(value: str) -> tuple[bool, str]:
+    """ISO 13616 (country length + mod-97); for ES also the bank/branch/account check digits."""
     v = value.replace(" ", "").upper()
     if not (15 <= len(v) <= 34) or not v.isalnum():
-        return False
+        return False, "bad length"
     want = _IBAN_LEN.get(v[:2])
     if want is not None and len(v) != want:
-        return False
-    rearranged = v[4:] + v[:4]
-    num = "".join(str(int(c, 36)) for c in rearranged)
-    return int(num) % 97 == 1
+        return False, f"wrong length for {v[:2]} (expected {want})"
+    num = "".join(str(int(c, 36)) for c in v[4:] + v[:4])
+    if int(num) % 97 != 1:
+        return False, "IBAN checksum (mod-97) failed"
+    if v[:2] == "ES":
+        bank_branch, dc, acct = v[4:12], v[12:14], v[14:]
+        if not (bank_branch.isdigit() and dc.isdigit() and acct.isdigit()):
+            return False, "malformed Spanish account"
+        if f"{_ccc_dc('00' + bank_branch)}{_ccc_dc(acct)}" != dc:
+            return False, "Spanish account control digits failed"
+        return True, f"valid Spanish IBAN (bank {bank_branch[:4]})"
+    return True, f"valid IBAN ({v[:2]})"
+
+
+def is_iban(value: str) -> bool:
+    return check_iban(value)[0]
 
 
 _DNI_LETTERS = "TRWAGMYFPDXBNJZSQVHLCKE"
@@ -106,12 +134,23 @@ def is_dni(value: str) -> bool:
     return len(v) == 9 and v[:8].isdigit() and _DNI_LETTERS[int(v[:8]) % 23] == v[8]
 
 
+def check_dni(value: str) -> tuple[bool, str]:
+    return (True, "control letter OK") if is_dni(value) else (False, "control letter does not match")
+
+
 def is_nie(value: str) -> bool:
     v = value.replace(" ", "").replace("-", "").upper()
     if len(v) != 9 or v[0] not in "XYZ" or not v[1:8].isdigit():
         return False
     return _DNI_LETTERS[int("XYZ".index(v[0]).__str__() + v[1:8]) % 23] == v[8]
 
+
+def check_nie(value: str) -> tuple[bool, str]:
+    return (True, "control letter OK") if is_nie(value) else (False, "control letter does not match")
+
+
+# Offline "is it real?" checks: name -> fn(value) -> (ok, detail)
+CHECKS = {"iban": check_iban, "card": check_card, "dni": check_dni, "nie": check_nie}
 
 VALIDATORS = {
     "iban": is_iban,

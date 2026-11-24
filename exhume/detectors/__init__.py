@@ -3,19 +3,18 @@ from __future__ import annotations
 
 import re
 
-from ..models import Finding, Severity
+from ..models import Finding, Severity, Verified
 from .entropy import shannon_entropy
 from .patterns import (
     AWS_SECRET_RE,
     DETECTORS,
     ENTROPY_DENY,
     GENERIC_SECRET,
-    LINE_FILTERS,
     Detector,
     is_placeholder,
 )
 from .rules import cached_rules, load_allowlist, load_custom_detectors
-from .validators import VALIDATORS
+from .validators import CHECKS, VALIDATORS
 
 __all__ = [
     "scan_text",
@@ -159,21 +158,22 @@ def scan_text(
                     vfn = VALIDATORS.get(det.validator)
                     if vfn and not vfn(value):
                         continue
-                if det.context:
-                    cfn = LINE_FILTERS.get(det.context)
-                    if cfn and not cfn(line, *(m.span(i) if i else m.span(0))):
-                        continue
                 if det.needs_entropy:
                     if (shannon_entropy(value) < (min_entropy - 1.0)
                             or is_placeholder(value) or _looks_like_code(value)
                             or _is_junk(value)):
                         continue
                 start, end = (m.span(i) if i else m.span(0))
-                findings.append(Finding(
+                finding = Finding(
                     detector=det.name, severity=det.severity, line=lineno, col=start + 1,
                     redacted=_redact(value), context=_snippet(line, start, end, context_width),
                     context_block=_block(lines, idx), verifier=det.verifier, secret=value,
-                ))
+                )
+                if det.check:
+                    ok, why = CHECKS[det.check](value)
+                    finding.verified = Verified.VALID if ok else Verified.INVALID
+                    finding.detail = why
+                findings.append(finding)
 
         if not ENTROPY_DENY.search(line):
             for m in GENERIC_SECRET.finditer(line):

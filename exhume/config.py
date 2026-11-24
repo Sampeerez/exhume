@@ -36,6 +36,7 @@ class Config:
     include: list[str] = field(default_factory=list)   # if set, only matching paths
 
     # --- Active verification ---
+    probe_ips: bool = True      # with verify on: TCP-probe/reverse-DNS every discovered IP
     verify: bool = True         # verify credentials against provider APIs when possible
     only_verified: bool = False
 

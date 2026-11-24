@@ -17,6 +17,8 @@ def _vtag(verified: Verified) -> str:
         return f"{C.G}[✓ LIVE]{C.END} "
     if verified is Verified.DEAD:
         return f"{C.GR}[✗ dead]{C.END} "
+    if verified is Verified.VALID:
+        return f"{C.G}[✓ valid]{C.END} "
     return ""
 
 
@@ -49,6 +51,8 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
     if cfg.only_verified:
         findings = [f for f in findings if f.verified is Verified.LIVE]
 
+    invalid = [f for f in findings if f.verified is Verified.INVALID]
+    findings = [f for f in findings if f.verified is not Verified.INVALID]
     by_sev: dict[int, list] = defaultdict(list)
     for f in findings:
         by_sev[int(f.severity)].append(f)
@@ -78,6 +82,10 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
     else:
         extra = " verified" if cfg.only_verified else ""
         print(f"{C.G}No{extra} findings.{C.END}")
+
+    if invalid:
+        print(f"\n{C.GR}{len(invalid)} match(es) failed validation (bad checksum / no host answered) and are "
+              f"hidden here; they remain in the HTML (toggle) and CSV/JSON exports.{C.END}")
 
     if cfg.only_verified:
         print()

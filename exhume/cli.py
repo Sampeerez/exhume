@@ -81,6 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
     ver = p.add_argument_group("verification")
     ver.add_argument("--no-verify", dest="verify", action="store_false",
                      help="Disable live verification (on by default; unverifiable findings are still reported)")
+    ver.add_argument("--no-ip-probe", dest="probe_ips", action="store_false",
+                     help="Do not TCP-probe / reverse-resolve discovered IPs to check they are real hosts")
     ver.add_argument("--only-verified", action="store_true", help="Show only LIVE credentials")
 
     rules = p.add_argument_group("rules & baseline")
@@ -132,7 +134,7 @@ def args_to_config(a: argparse.Namespace) -> Config:
         max_depth=a.max_depth, archive_max_mb=a.archive_max_mb, archive_max_files=a.archive_max_files,
         follow_links=a.follow_links, scan_strings=a.strings, ocr=a.ocr, db_peek=a.db_peek,
         git_history=a.git_history, force_git=a.git, exclude=list(a.exclude), include=list(a.include),
-        verify=a.verify, only_verified=a.only_verified,
+        verify=a.verify, probe_ips=a.probe_ips, only_verified=a.only_verified,
         rules_files=list(a.rules), allowlist_file=a.allowlist, no_default_rules=a.no_default_rules,
         baseline_file=a.baseline, write_baseline_file=a.write_baseline,
         ai=a.ai, ai_model=a.ai_model, ai_url=a.ai_url,
@@ -161,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
         eprint(f"{Colors.Y}Optional extras unavailable:{Colors.END} {', '.join(sorted(missing))}")
     if cfg.verify:
         eprint(f"{Colors.Y}Live verification ON: discovered credentials will be tested against "
-               f"provider APIs. Authorized audits only (--no-verify to disable).{Colors.END}")
+               f"provider APIs, and discovered IPs are probed to confirm they are real hosts. "
+               f"Authorized audits only (--no-verify / --no-ip-probe to disable).{Colors.END}")
 
     scanner = Scanner(cfg)
     try:

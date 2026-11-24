@@ -35,6 +35,7 @@ from .sources import filesystem, git_history
 from .sources import s3 as s3_src
 from .sources import smb as smb_src
 from .verify import VERIFIERS, verify_aws_pair, verify_single
+from .verify.network import NETWORK_VERIFIERS, raise_fd_limit
 
 _SQLITE_EXT = {".db", ".sqlite", ".sqlite3", ".db3", ".sqlitedb"}
 
@@ -105,10 +106,6 @@ def _pair_aws(findings: list[Finding], fulltext: str) -> None:
         if candidates:
             f.extra["aws"] = candidates
             f.detail = f.detail or "AWS secret pair present (use --verify to confirm)"
-
-
-# Detectors that only produce noise on strings pulled out of binaries.
-_NOISY_IN_BINARY = {"Credit card", "Spanish DNI/NIF", "Spanish NIE", "US SSN", "IBAN"}
 
 
 def _bump(counter: dict | None, key: str) -> None:
@@ -192,8 +189,6 @@ def process_entry(real_path: str, display_path: str, cfg: Config,
         rec.method = method
         findings = scan_text(text, cfg.min_entropy, allow, tuple(extra_detectors),
                              use_builtin=not cfg.no_default_rules, context_width=cfg.context_width)
-        if method == "strings":
-            findings = [f for f in findings if f.detector not in _NOISY_IN_BINARY]
         _bump(counter, "scanned")
         _apply_path(findings, display_path)
         _pair_aws(findings, text)
@@ -403,11 +398,37 @@ class Scanner:
 
         jobs = [f for r in results for f in r.findings
                 if (f.verifier in VERIFIERS or f.detector == "AWS Access Key ID")]
-        if not jobs:
+        if jobs:
+            eprint(f"{Colors.CY}Verifying {len(jobs)} credential(s) against their APIs...{Colors.END}")
+            with cf.ThreadPoolExecutor(max_workers=min(16, max(4, cfg.resolved_workers()))) as ex:
+                list(ex.map(verify_one, jobs))
+        if cfg.probe_ips:
+            self._verify_ips(results)
+
+    def _verify_ips(self, results: list[FileResult]) -> None:
+        """Check that every discovered IP is a real, reachable/assigned host (deduplicated)."""
+        ip_findings = [f for r in results for f in r.findings
+                       if f.verifier in NETWORK_VERIFIERS and f.secret]
+        unique = sorted({f.secret for f in ip_findings})
+        if not unique:
             return
-        eprint(f"{Colors.CY}Verifying {len(jobs)} credential(s) against their APIs...{Colors.END}")
-        with cf.ThreadPoolExecutor(max_workers=min(16, max(4, cfg.resolved_workers()))) as ex:
-            list(ex.map(verify_one, jobs))
+        raise_fd_limit()
+        eprint(f"{Colors.CY}Checking {len(unique)} unique IP address(es) are real hosts "
+               f"(TCP probe + reverse DNS)...{Colors.END}")
+        outcome: dict[str, tuple] = {}
+        fn = NETWORK_VERIFIERS["ip"]
+        with cf.ThreadPoolExecutor(max_workers=32) as ex:
+            futs = {ex.submit(fn, ip): ip for ip in unique}
+            for n, fut in enumerate(cf.as_completed(futs), 1):
+                try:
+                    outcome[futs[fut]] = fut.result()
+                except Exception:
+                    outcome[futs[fut]] = (Verified.UNKNOWN, "error")
+                if n % 50 == 0 or n == len(unique):
+                    eprint(f"\r{Colors.GR}  {n}/{len(unique)}...{Colors.END}", end="")
+        eprint("")
+        for f in ip_findings:
+            f.verified, f.detail = outcome[f.secret]
 
 
 def sorted_findings(results: list[FileResult]) -> list[Finding]:
