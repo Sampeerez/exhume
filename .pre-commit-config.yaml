@@ -1,0 +1,17 @@
+# Pre-commit configuration for developing Exhume itself.
+#   pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  - repo: local
+    hooks:
+      - id: exhume-self-scan
+        name: exhume (secret scan, offline gate)
+        entry: exhume
+        language: system
+        pass_filenames: false
+        args: ["--no-verify", "--no-ai", "--no-html", "--no-git-history", "--min-sev", "high", "."]

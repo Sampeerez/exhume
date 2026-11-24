@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exhume"
+version = "7.0.1"
+description = "Sensitive-data discovery and verification suite for security audits / pentesting."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Exhume contributors" }]
+keywords = ["security", "secrets", "pentesting", "audit", "dfir", "credentials", "scanner"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = []  # The core runs on the standard library alone.
+
+[project.optional-dependencies]
+docs = ["pdfplumber", "python-docx", "openpyxl", "python-pptx", "extract-msg"]
+archives = ["py7zr", "rarfile"]
+remote = ["impacket", "boto3"]
+ocr = ["pillow", "pytesseract"]
+rules = ["PyYAML"]
+# Todo de golpe:
+full = [
+    "pdfplumber", "python-docx", "openpyxl", "python-pptx", "extract-msg",
+    "py7zr", "rarfile", "impacket", "boto3", "pillow", "pytesseract", "PyYAML",
+]
+dev = ["pytest", "pytest-cov", "ruff"]
+
+[project.scripts]
+exhume = "exhume.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/your-org/exhume"
+Issues = "https://github.com/your-org/exhume/issues"
+
+[tool.setuptools.packages.find]
+include = ["exhume*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E402", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# HTML template and regex catalog: long lines are unavoidable and read better this way.
+"exhume/reporting/html.py" = ["E501"]
+"exhume/detectors/patterns.py" = ["E501"]

@@ -1,0 +1,26 @@
+# Example of custom per-client / per-audit rules.
+# Usage:  exhume /path --rules rules/example.yaml
+#
+# Equivalent JSON format works too if you don't have PyYAML installed.
+
+rules:
+  - name: "ACME internal key"
+    regex: "ACME-[0-9A-F]{32}"
+    severity: critical       # critical | high | medium
+    anchors: ["acme-"]       # optional: speeds up prefiltering (lowercase literal)
+
+  - name: "Internal employee ID"
+    regex: "EMP-\\d{6}"
+    severity: medium
+
+  - name: "Legacy API token"
+    regex: "legacy_[A-Za-z0-9]{40}"
+    severity: high
+    entropy: true            # require high entropy on the capture
+
+# Patterns to IGNORE (any line matching one of these is skipped entirely).
+allowlist:
+  - "EXAMPLE"
+  - "AKIAIOSFODNN7EXAMPLE"   # AWS documentation example key
+  - "changeme"
+  - "/tests?/fixtures?/"

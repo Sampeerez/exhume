@@ -1,0 +1,17 @@
+# Lets other repositories use Exhume as a pre-commit hook:
+#
+#   # .pre-commit-config.yaml in the consumer repo
+#   repos:
+#     - repo: https://github.com/your-org/exhume
+#       rev: v7.0.0
+#       hooks:
+#         - id: exhume
+#
+- id: exhume
+  name: exhume (secret scan)
+  description: Scan the working tree for secrets and block the commit on High/Critical findings.
+  entry: exhume
+  language: python
+  pass_filenames: false
+  # Fast, offline gate: no network verification, no AI, no HTML report.
+  args: ["--no-verify", "--no-ai", "--no-html", "--no-git-history", "--min-sev", "high", "."]
