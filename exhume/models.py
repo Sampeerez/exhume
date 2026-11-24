@@ -103,6 +103,7 @@ class ScanStats:
     suppressed: int = 0   # findings hidden by the baseline
     ai_summary: str = ""  # local-AI triage report (Markdown), if available
     ai_model: str = ""    # model that produced the triage
+    coverage: dict = field(default_factory=dict)  # how every entry was handled
 
 
 def finding_sort_key(f: Finding) -> tuple:

@@ -11,7 +11,19 @@ All notable versions of Exhume.
 - `--html-max` (default 50000): the HTML report embeds the highest-severity findings up to this
   limit and, when truncated, an extra `.csv` with every finding is written automatically.
 
+- HTML report: **Report mode** (📷) censors values and surrounding context, shows relative paths and
+  hides controls for client-safe screenshots; findings can be dismissed as false positives
+  (per finding, per file/value/detector, or all filtered), persisted in the browser, excluded in
+  report mode, with "Export reviewed CSV".
+- HTML report: assets (executables, archives, …) are collapsible folder trees instead of long lists.
+- Coverage summary (content scanned / media skipped / unreadable / too big …) in console, JSON and HTML.
+
 ### Changed
+- Fewer false positives: dummy credit-card numbers, placeholders like `[Password]`, binary garbage
+  decoded as text, and card/ID/IBAN matches inside strings extracted from binaries are dropped.
+- IBAN (mod-97 + country length), Spanish DNI/NIF and NIE (check letter) are now validated, and
+  IPv4 matches are dropped when they look like numbered headings/versions (`3.2.2.1 Title`) or, for
+  public IPs, when the line has no host/network context.
 - Sensible defaults, no flags needed: the HTML report opens automatically and a CSV with every
   finding is always written (opt out with `--no-open` / `--no-csv`).
 - HTML report is paginated (100 rows/page), builds row details lazily and loads data in chunks.

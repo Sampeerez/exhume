@@ -82,6 +82,7 @@ def build_payload(results: list[FileResult], stats: ScanStats, mask: bool = Fals
             "target": stats.root,
             "files_seen": stats.seen,
             "files_scanned": stats.scanned,
+            "coverage": stats.coverage,
             "nested": stats.nested,
             "git_blobs": stats.git_blobs,
             "seconds": round(stats.elapsed, 2),

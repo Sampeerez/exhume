@@ -10,6 +10,7 @@ from .patterns import (
     DETECTORS,
     ENTROPY_DENY,
     GENERIC_SECRET,
+    LINE_FILTERS,
     Detector,
     is_placeholder,
 )
@@ -71,6 +72,17 @@ def _looks_like_code(value: str) -> bool:
     # A bare identifier that is clearly a variable name (snake/camel, no entropy)
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,30}", v) and shannon_entropy(v) < 2.6:
         return True
+    return False
+
+
+def _is_junk(value: str) -> bool:
+    """Binary garbage decoded as text: replacement chars, control bytes, mostly symbols."""
+    if "\ufffd" in value or any(ord(c) < 32 for c in value):
+        return True
+    if len(value) >= 8:
+        symbols = sum(1 for c in value if not c.isalnum())
+        if symbols / len(value) > 0.45:
+            return True
     return False
 
 
@@ -147,9 +159,14 @@ def scan_text(
                     vfn = VALIDATORS.get(det.validator)
                     if vfn and not vfn(value):
                         continue
+                if det.context:
+                    cfn = LINE_FILTERS.get(det.context)
+                    if cfn and not cfn(line, *(m.span(i) if i else m.span(0))):
+                        continue
                 if det.needs_entropy:
                     if (shannon_entropy(value) < (min_entropy - 1.0)
-                            or is_placeholder(value) or _looks_like_code(value)):
+                            or is_placeholder(value) or _looks_like_code(value)
+                            or _is_junk(value)):
                         continue
                 start, end = (m.span(i) if i else m.span(0))
                 findings.append(Finding(
@@ -161,7 +178,7 @@ def scan_text(
         if not ENTROPY_DENY.search(line):
             for m in GENERIC_SECRET.finditer(line):
                 cand = m.group(1)
-                if len(cand) < 24:
+                if len(cand) < 24 or _is_junk(cand):
                     continue
                 ent = shannon_entropy(cand)
                 if ent >= min_entropy and re.search(r"[A-Za-z]", cand) and re.search(r"\d", cand):

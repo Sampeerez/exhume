@@ -105,3 +105,24 @@ def test_secret_captured_but_not_in_public_dict():
     f = scan_text("ghp_" + "1234567890abcdefABCDEF1234567890abcd", 3.8)[0]
     assert f.secret is not None
     assert "secret" not in f.to_public_dict()
+
+
+def test_false_positive_filters():
+    from exhume.detectors import scan_text
+    names = lambda t: {f.detector for f in scan_text(t, 3.5)}  # noqa: E731
+    assert "Credit card" not in names("4100000000000004")          # dummy number, mostly zeros
+    assert "Credential assignment" not in names("; Password=[Password]")  # placeholder
+    assert "Credential assignment" not in names("DSN=?GU�mHOr��E2-,)&>��")  # binary junk
+
+
+def test_ids_and_ips_need_to_be_real():
+    from exhume.detectors import scan_text
+    names = lambda t: {f.detector for f in scan_text(t, 3.5)}  # noqa: E731
+    assert "IBAN" in names("cuenta ES9121000418450200051332")           # valid mod-97
+    assert "IBAN" not in names("ref ES1234567890123456789012")          # bad checksum
+    assert "Spanish DNI/NIF" in names("dni 12345678Z")                  # valid letter
+    assert "Spanish DNI/NIF" not in names("dni 12345678A")              # wrong letter
+    assert "Spanish NIE" in names("nie X1234567L")
+    assert "Public IPv4" not in names("3.2.2.1 Seguridad en el almacén")    # numbered heading
+    assert "Public IPv4" not in names("version 4.1.1.2 del producto")       # no host context
+    assert "Public IPv4" in names("servidor dns 8.8.8.8")

@@ -116,3 +116,10 @@ def test_html_truncates_to_max_and_reports_omitted(tmp_path):
     assert omitted == len(payload["findings"]) - 10
     assert "highest-severity findings" in p.read_text()
     assert write_html(payload, str(p), max_findings=0) == 0
+
+
+def test_html_has_report_mode_and_dismiss(tmp_path):
+    p = tmp_path / "r.html"
+    write_html(build_payload(_sample_results(), _stats()), str(p))
+    html = p.read_text()
+    assert "toggleReport" in html and "setDis" in html and "exhume-dismissed" in html

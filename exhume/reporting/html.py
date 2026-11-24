@@ -90,6 +90,35 @@ h3{margin:16px 0 4px;color:#cbd5e1;font-size:13.5px}
 .pager button:disabled{opacity:.4;cursor:default}
 .pager input{width:64px;padding:5px 7px;background:var(--panel);border:1px solid var(--line);color:var(--txt);border-radius:7px}
 .trunc{background:#2a1d10;color:#ffcf99;border:1px solid #5a3d1a;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px}
+
+.hdrrow{display:flex;align-items:flex-start;gap:14px;justify-content:space-between}
+.hdrbtns{display:flex;gap:8px;flex-shrink:0}
+.btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.danger:hover{border-color:var(--crit);color:#fda4af}
+.x{background:none;border:0;color:#64748b;cursor:pointer;font-size:15px;padding:2px 7px;border-radius:6px}
+.x:hover{background:#3a1420;color:#fda4af}
+tr.row.dis{opacity:.45}
+tr.row.dis .det,tr.row.dis .val,tr.row.dis .loc{text-decoration:line-through}
+.rbanner{display:none;background:#10231a;border:1px solid #1f5a3a;color:#86efac;border-radius:10px;padding:9px 14px;margin-bottom:14px;font-size:13px}
+body.report .rbanner{display:block}
+body.report .noreport,body.report .toolbar .tog,body.report #pager,body.report .x,body.report .detailbtns,
+body.report .fpcol,body.report #assetsec,body.report .trunc,body.report .ai,body.report .card[data-sev=live]{display:none!important}
+body.report .val{cursor:default}
+body.report .meta .tgt{letter-spacing:.1em}
+body.report .code .src{white-space:pre-wrap;word-break:break-all}
+.tree details{margin:2px 0}
+.tree summary{cursor:pointer;padding:3px 6px;border-radius:6px;list-style:none;font-size:13px}
+.tree summary::-webkit-details-marker{display:none}
+.tree summary::before{content:"▸";display:inline-block;width:16px;color:var(--mut);transition:transform .1s}
+.tree details[open]>summary::before{transform:rotate(90deg)}
+.tree summary:hover{background:var(--panel2)}
+.tree .kids{margin-left:14px;border-left:1px solid var(--line);padding-left:8px}
+.tree .file{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;padding:2px 6px 2px 22px;color:#cbd5e1;
+ display:flex;justify-content:space-between;gap:14px;word-break:break-all}
+.tree .cnt{color:var(--mut);font-size:12px;margin-left:6px}
+.tree .more{margin:4px 0 4px 22px}
+.cat>summary{font-weight:700;font-size:14px;background:var(--panel);border:1px solid var(--line);padding:9px 12px;margin-top:8px}
+.cat .kids{margin-top:4px}
 .empty{color:var(--mut);padding:26px;text-align:center}
 footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;
@@ -109,8 +138,10 @@ footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
 .ai p{margin:6px 0;color:#d2d8e2}
 </style></head><body>
 <header>
+ <div class="hdrrow"><div>
  <div class="brand">Exhume <span class="tag">audit report</span>__MASKBADGE__</div>
- <div class="meta">__METALINE__</div>
+ <div class="meta">__METALINE__</div></div>
+ <div class="hdrbtns"><button class="btn" id="rmode" onclick="toggleReport()" title="Censor values and hide controls so you can take a client-safe screenshot">📷 Report mode</button></div></div>
 </header>
 <main>
  <div class="cards" id="cards">
@@ -120,6 +151,7 @@ footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
   <div class="card live" data-sev="live"><div class="n">__LIVE__</div><div class="l">Verified live</div></div>
   <div class="card" data-sev="all"><div class="n">__TOTAL__</div><div class="l">Total findings</div></div>
  </div>
+ <div class="rbanner">REPORT MODE · values are censored, paths are relative and dismissed findings are excluded. Click “Exit report mode” to go back.</div>
  <div class="bar">__BAR__</div>
  __AISECTION__
  __TRUNCNOTE__
@@ -134,12 +166,16 @@ footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
   <select id="detsel" onchange="render()"><option value="">All detectors</option>__DETOPTS__</select>
   <label class="tog"><input type="checkbox" id="liveonly" onchange="render()"> Verified only</label>
   <label class="tog"><input type="checkbox" id="expall" onchange="toggleAll(this.checked)"> Expand all</label>
+  <label class="tog"><input type="checkbox" id="showdis" onchange="render()"> Show dismissed</label>
   <button class="btn" onclick="copyLive()">Copy live creds</button>
+  <button class="btn noreport" onclick="dismissFiltered()" title="Mark every finding matching the current filters as false positive">Dismiss filtered</button>
+  <button class="btn noreport" onclick="exportReviewed()">Export reviewed CSV</button>
+  <button class="btn noreport danger" onclick="restoreAll()">Restore all</button>
   <span class="count" id="count"></span>
  </div>
 
  <table>
-  <thead><tr><th style="width:26px"></th><th>Severity</th><th>Verified</th><th>Detector</th><th>Location</th><th>Value</th></tr></thead>
+  <thead><tr><th style="width:26px"></th><th>Severity</th><th>Verified</th><th>Detector</th><th>Location</th><th>Value</th><th class="fpcol" style="width:34px"></th></tr></thead>
   <tbody id="rows"></tbody>
  </table>
 
@@ -158,14 +194,36 @@ document.querySelectorAll('script.chunk').forEach(s=>{
  if(d.assets) DATA.assets=d.assets;
 });
 const PAGE=100; let page=0, view=[];
-let fSev='all';
+const ROOT=(document.querySelector('.tgt')||{}).dataset?document.querySelector('.tgt').dataset.real:'';
+let fSev='all', REPORT=false;
 const SEVLBL={3:'CRITICAL',2:'HIGH',1:'MEDIUM'};
-function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function hi(line,val){ // escape then highlight occurrences of val
- let e=esc(line); if(val){const ev=esc(val); if(ev) e=e.split(ev).join('<mark>'+ev+'</mark>');} return e;
-}
+const SKEY='exhume-dismissed:'+ROOT;
+let DIS=new Set(); try{DIS=new Set(JSON.parse(localStorage.getItem(SKEY)||'[]'));}catch(e){}
+function saveDis(){try{localStorage.setItem(SKEY,JSON.stringify([...DIS]));}catch(e){}}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1300);}
 function copy(txt){navigator.clipboard.writeText(txt).then(()=>toast('Copied')).catch(()=>toast('Copy failed'));}
+// ---- censoring (report mode) ----
+function maskVal(v){v=v||'';return v.length<=2?'••••':v.slice(0,2)+'•'.repeat(Math.min(10,Math.max(4,v.length-2)));}
+function showVal(f){return REPORT?maskVal(f.value):f.value;}
+function relPath(p){
+ if(!REPORT||!ROOT) return p;
+ return p.startsWith(ROOT)?('…'+p.slice(ROOT.length)):p;
+}
+function censorLine(line,f){
+ if(!REPORT) return line;
+ let t=line;
+ if(f.value) t=t.split(f.value).join(maskVal(f.value));
+ // also hide values of other assignments that appear in the surrounding lines
+ return t.replace(/([:=]\s*['"]?)([^\s'";,•]{4,})/g,(m,a,b)=>a+maskVal(b));
+}
+function hi(line,f){
+ const shown=showVal(f);
+ let e=esc(censorLine(line,f)); const ev=esc(shown);
+ if(ev) e=e.split(ev).join('<mark>'+ev+'</mark>');
+ return e;
+}
+function visible(f){return REPORT? !DIS.has(f.fingerprint) : true;}
 function setSev(s){fSev=s;
  document.querySelectorAll('#sevseg button').forEach(b=>b.classList.toggle('active',b.dataset.sev===s));
  document.querySelectorAll('#cards .card').forEach(c=>c.classList.toggle('sel',c.dataset.sev===s&&s!=='all'));
@@ -175,6 +233,8 @@ function match(f){
  const q=document.getElementById('q').value.toLowerCase();
  const det=document.getElementById('detsel').value;
  const liveonly=document.getElementById('liveonly').checked;
+ const showdis=document.getElementById('showdis').checked&&!REPORT;
+ if(!showdis && DIS.has(f.fingerprint)) return false;
  if(fSev==='live'){ if(f.verified!=='live') return false; }
  else if(fSev!=='all'){ if(String(f.severity)!==fSev) return false; }
  if(liveonly && f.verified!=='live') return false;
@@ -184,42 +244,52 @@ function match(f){
  return true;
 }
 function detailHTML(f,i){
- const loc=esc(f.path)+':'+f.line+(f.col?(':'+f.col):'');
+ const loc=esc(relPath(f.path))+':'+f.line+(f.col?(':'+f.col):'');
  let code='';
  (f.context_block||[]).forEach(([n,t])=>{
    const hit = n===f.line ? ' hit':'';
-   code+='<div class="ln'+hit+'"><span class="gutter">'+n+'</span><span class="src">'+hi(t,f.value)+'</span></div>';
+   code+='<div class="ln'+hit+'"><span class="gutter">'+n+'</span><span class="src">'+hi(t,f)+'</span></div>';
  });
- if(!code) code='<div class="ln"><span class="src">'+hi(f.context,f.value)+'</span></div>';
+ if(!code) code='<div class="ln"><span class="src">'+hi(f.context,f)+'</span></div>';
  const vb = f.verified==='live'?'<span class="vbadge v-live">● LIVE</span>':(f.verified==='dead'?'<span class="vbadge v-dead">● dead</span>':'unknown');
+ const dis=DIS.has(f.fingerprint);
  return '<div class="detailbox">'
   +'<div class="dgrid">'
   +'<div><span class="k">Location</span><span class="loc">'+loc+'</span></div>'
   +'<div><span class="k">Detector</span>'+esc(f.detector)+'</div>'
   +'<div><span class="k">Verified</span>'+vb+'</div>'
   +(f.detail?('<div><span class="k">Detail</span>'+esc(f.detail)+'</div>'):'')
-  +'<div><span class="k">Fingerprint</span><span class="loc">'+esc(f.fingerprint)+'</span></div>'
   +'</div>'
+  +'<div class="detailbtns">'
   +'<button class="btn" onclick="copy(DATA.findings['+i+'].value)">Copy value</button>'
   +'<button class="btn" onclick="copy(DATA.findings['+i+'].path)">Copy path</button>'
+  +(dis?'<button class="btn" onclick="setDis(['+i+'],false)">Restore</button>'
+       :'<button class="btn danger" onclick="setDis(['+i+'],true)">Not real — dismiss</button>'
+        +'<button class="btn danger" onclick="dismissWhere('+i+',\'file\')">Dismiss all of this detector in this file</button>'
+        +'<button class="btn danger" onclick="dismissWhere('+i+',\'value\')">Dismiss all with this value</button>'
+        +'<button class="btn danger" onclick="dismissWhere('+i+',\'detector\')">Dismiss whole detector</button>')
+  +'</div>'
   +'<div class="code">'+code+'</div>'
   +'</div>';
 }
 function rowFor(f,i){
- const tr=document.createElement('tr'); tr.className='row';
+ const tr=document.createElement('tr'); tr.className='row'+(DIS.has(f.fingerprint)?' dis':'');
  const vb=f.verified==='live'?'<span class="vbadge v-live">● LIVE</span>':(f.verified==='dead'?'<span class="vbadge v-dead">● dead</span>':'');
- const loc=esc(f.path)+':'+f.line+(f.col?(':'+f.col):'');
+ const loc=esc(relPath(f.path))+':'+f.line+(f.col?(':'+f.col):'');
+ const dis=DIS.has(f.fingerprint);
  tr.innerHTML='<td><span class="caret">▸</span></td>'
   +'<td><span class="pill p'+f.severity+'">'+SEVLBL[f.severity]+'</span></td>'
   +'<td>'+vb+'</td><td class="det">'+esc(f.detector)+'</td>'
   +'<td class="loc">'+loc+'</td>'
-  +'<td><span class="val" title="Click to copy">'+esc(f.value)+'</span></td>';
+  +'<td><span class="val" title="'+(REPORT?'':'Click to copy')+'">'+esc(showVal(f))+'</span></td>'
+  +'<td class="fpcol"><button class="x" title="'+(dis?'Restore':'Not a real finding — dismiss')+'">'+(dis?'↺':'✕')+'</button></td>';
  let dtr=null;
  tr.addEventListener('click',()=>{
   if(!dtr){ dtr=document.createElement('tr'); dtr.className='detail';
-   dtr.innerHTML='<td colspan="6">'+detailHTML(f,i)+'</td>'; tr.after(dtr); tr.classList.add('open'); return; }
+   dtr.innerHTML='<td colspan="7">'+detailHTML(f,i)+'</td>'; tr.after(dtr); tr.classList.add('open'); return; }
   const o=dtr.style.display==='none'; dtr.style.display=o?'':'none'; tr.classList.toggle('open',o);});
- tr.querySelector('.val').addEventListener('click',ev=>{ev.stopPropagation();copy(f.value);});
+ tr.querySelector('.val').addEventListener('click',ev=>{ev.stopPropagation();if(!REPORT)copy(f.value);});
+ tr.querySelector('.x').addEventListener('click',ev=>{ev.stopPropagation();setDis([i],!dis);});
  return tr;
 }
 function render(resetPage){
@@ -231,9 +301,54 @@ function render(resetPage){
  const frag=document.createDocumentFragment();
  view.slice(page*PAGE,(page+1)*PAGE).forEach(i=>frag.appendChild(rowFor(DATA.findings[i],i)));
  tb.appendChild(frag);
- if(!view.length) tb.innerHTML='<tr><td colspan="6" class="empty">No findings match the current filters.</td></tr>';
- document.getElementById('count').textContent=view.length.toLocaleString()+' / '+DATA.findings.length.toLocaleString()+' findings';
- renderPager(pages);
+ if(!view.length) tb.innerHTML='<tr><td colspan="7" class="empty">No findings match the current filters.</td></tr>';
+ const nd=DIS.size?(' · '+DIS.size.toLocaleString()+' dismissed'):'';
+ document.getElementById('count').textContent=view.length.toLocaleString()+' / '+DATA.findings.length.toLocaleString()+' findings'+nd;
+ renderPager(pages); updateCards();
+}
+function updateCards(){ // totals minus dismissed (dismissed ones can only be among the embedded findings)
+ const d={1:0,2:0,3:0,live:0,all:0};
+ DATA.findings.forEach(f=>{ if(DIS.has(f.fingerprint)){d[f.severity]++;d.all++;if(f.verified==='live')d.live++;} });
+ document.querySelectorAll('#cards .card').forEach(c=>{
+  const k=c.dataset.sev, n=c.querySelector('.n');
+  if(n.dataset.base===undefined) n.dataset.base=n.textContent;
+  n.textContent=(Math.max(0,(+n.dataset.base)-(d[k]||0))).toLocaleString();
+ });
+}
+function setDis(idx,on){
+ idx.forEach(i=>{const fp=DATA.findings[i].fingerprint; on?DIS.add(fp):DIS.delete(fp);});
+ saveDis(); render(false);
+}
+function dismissWhere(i,kind){
+ const f=DATA.findings[i]; const hit=[];
+ DATA.findings.forEach((g,j)=>{
+  if(kind==='file' && g.detector===f.detector && g.path===f.path) hit.push(j);
+  else if(kind==='value' && g.value===f.value) hit.push(j);
+  else if(kind==='detector' && g.detector===f.detector) hit.push(j);
+ });
+ if(hit.length>1 && !confirm('Dismiss '+hit.length.toLocaleString()+' findings?')) return;
+ setDis(hit,true);
+}
+function dismissFiltered(){
+ if(!view.length){toast('Nothing to dismiss');return;}
+ if(!confirm('Mark '+view.length.toLocaleString()+' filtered findings as NOT real?\nYou can undo it with "Show dismissed" or "Restore all".')) return;
+ setDis(view.slice(),true);
+}
+function restoreAll(){ if(!DIS.size||!confirm('Restore all '+DIS.size+' dismissed findings?')) return; DIS=new Set(); saveDis(); render(false); }
+function csvCell(v){v=String(v==null?'':v);return '"'+v.replace(/"/g,'""')+'"';}
+function exportReviewed(){
+ const rows=[['severity','verified','detector','path','line','value','detail']];
+ DATA.findings.forEach(f=>{ if(DIS.has(f.fingerprint)) return;
+  rows.push([SEVLBL[f.severity],f.verified==='live'?'LIVE':(f.verified==='dead'?'DEAD':''),f.detector,f.path,f.line,f.value,f.detail||'']); });
+ const blob=new Blob(['﻿'+rows.map(r=>r.map(csvCell).join(',')).join('\n')],{type:'text/csv'});
+ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='exhume_reviewed.csv'; a.click();
+ toast((rows.length-1)+' findings exported');
+}
+function toggleReport(){
+ REPORT=!REPORT; document.body.classList.toggle('report',REPORT);
+ const b=document.getElementById('rmode'); b.textContent=REPORT?'Exit report mode':'📷 Report mode'; b.classList.toggle('on',REPORT);
+ const t=document.querySelector('.tgt'); if(t) t.textContent=REPORT?'[target hidden]':t.dataset.real;
+ render();
 }
 function goPage(p){page=p;render(false);window.scrollTo({top:0});}
 function renderPager(pages){
@@ -251,31 +366,72 @@ function toggleAll(on){
   if(on!==open) r.click();
  });}
 function copyLive(){
- const live=DATA.findings.filter(f=>f.verified==='live');
+ const live=DATA.findings.filter(f=>f.verified==='live'&&!DIS.has(f.fingerprint));
  if(!live.length){toast('No verified-live credentials');return;}
  copy(live.map(f=>f.detector+'\t'+f.path+':'+f.line+'\t'+f.value).join('\n'));
 }
-function renderExtra(){
- let h='';
- const db=DATA.databases||[];
- if(db.length){ h+='<h2>Databases</h2>';
-  db.forEach(d=>{ h+='<h3 class="loc">'+esc(d.path)+'</h3>';
-   const sc=(d.sensitive_columns||[]); if(sc.length) h+='<p class="susp">⚠ sensitive columns: '+esc(sc.join(', '))+'</p>';
-   const tb=(d.tables||[]); if(tb.length){ h+='<table class="subt"><thead><tr><th>Table</th><th>Rows</th><th>Columns</th></tr></thead><tbody>';
-    tb.forEach(t=>{h+='<tr><td>'+esc(t.name)+'</td><td>'+(t.rows==null?'':t.rows)+'</td><td class="loc">'+esc((t.columns||[]).join(', '))+'</td></tr>';});
-    h+='</tbody></table>'; } });
- }
- const titles={database:'Databases',key_material:'Key material',sensitive_name:'Sensitive filenames',
-  executable:'Executables',archive:'Archives',config:'Config files',git_history:'Git history'};
- const as=DATA.assets||{}; let any=false;
- let ah='';
- for(const k in titles){ const items=as[k]||[]; if(!items.length) continue; any=true;
-  ah+='<h3>'+titles[k]+' <span class="sz">('+items.length+')</span></h3><div class="asset"><ul>';
-  items.forEach(i=>{ah+='<li>'+esc(i.path)+' <span class="sz">('+human(i.size)+')</span></li>';}); ah+='</ul></div>'; }
- if(any) h+='<h2>Detected assets</h2>'+ah;
- document.getElementById('extra').innerHTML=h;
-}
+// ---- assets: collapsible folder tree, built lazily ----
 function human(n){const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return n.toFixed(1)+u[i];}
+function buildTrie(items){
+ const root={d:{},f:[],n:0};
+ items.forEach(it=>{
+  let p=it.path; if(ROOT&&p.startsWith(ROOT)) p=p.slice(ROOT.length);
+  const parts=p.split('/').filter(Boolean); const name=parts.pop()||p;
+  let node=root; node.n++;
+  parts.forEach(seg=>{ node=node.d[seg]||(node.d[seg]={d:{},f:[],n:0}); node.n++; });
+  node.f.push({name:name,size:it.size,path:it.path});
+ });
+ return root;
+}
+function renderNode(node,box){
+ const MAXF=200;
+ Object.keys(node.d).sort().forEach(k=>{
+  let label=k, cur=node.d[k];
+  while(!cur.f.length && Object.keys(cur.d).length===1){ const nk=Object.keys(cur.d)[0]; label+='/'+nk; cur=cur.d[nk]; }
+  const det=document.createElement('details');
+  det.innerHTML='<summary>📁 '+esc(label)+'<span class="cnt">'+cur.n.toLocaleString()+'</span></summary><div class="kids"></div>';
+  let built=false;
+  det.addEventListener('toggle',()=>{ if(det.open&&!built){built=true;renderNode(cur,det.querySelector('.kids'));} });
+  box.appendChild(det);
+ });
+ const files=node.f.slice().sort((a,b)=>a.name<b.name?-1:1);
+ const addFiles=(from)=>{
+  files.slice(from,from+MAXF).forEach(f=>{
+   const d=document.createElement('div'); d.className='file';
+   d.innerHTML='<span>'+esc(f.name)+'</span><span class="sz">'+human(f.size)+'</span>'; d.title=f.path; box.appendChild(d);});
+  if(files.length>from+MAXF){
+   const b=document.createElement('button'); b.className='btn more'; b.textContent='Show '+Math.min(MAXF,files.length-from-MAXF)+' more of '+(files.length-from-MAXF).toLocaleString();
+   b.onclick=()=>{b.remove();addFiles(from+MAXF);}; box.appendChild(b);}
+ };
+ addFiles(0);
+}
+function renderExtra(){
+ const titles={key_material:'Key material',sensitive_name:'Sensitive filenames',database:'Databases',
+  executable:'Executables',archive:'Archives',config:'Config files',git_history:'Git history'};
+ const as=DATA.assets||{}; const box=document.createElement('div'); box.id='assetsec'; box.className='tree';
+ let any=false;
+ for(const k in titles){ const items=as[k]||[]; if(!items.length) continue; any=true;
+  const det=document.createElement('details'); det.className='cat';
+  det.innerHTML='<summary>'+titles[k]+'<span class="cnt">'+items.length.toLocaleString()+'</span></summary><div class="kids"></div>';
+  let built=false;
+  det.addEventListener('toggle',()=>{ if(det.open&&!built){built=true;
+   const kids=det.querySelector('.kids');
+   if(k==='database') dbHTML(kids,items);
+   renderNode(buildTrie(items),kids); } });
+  box.appendChild(det); }
+ const ex=document.getElementById('extra'); ex.innerHTML='';
+ if(any){ const h=document.createElement('h2'); h.textContent='Detected assets'; ex.appendChild(h); ex.appendChild(box); }
+}
+function dbHTML(kids,items){
+ const paths=new Set(items.map(i=>i.path)); let h='';
+ (DATA.databases||[]).forEach(d=>{ if(!paths.has(d.path)) return;
+  h+='<h3 class="loc">'+esc(d.path)+'</h3>';
+  const sc=(d.sensitive_columns||[]); if(sc.length) h+='<p class="susp">⚠ sensitive columns: '+esc(sc.join(', '))+'</p>';
+  const tb=(d.tables||[]); if(tb.length){ h+='<table class="subt"><thead><tr><th>Table</th><th>Rows</th><th>Columns</th></tr></thead><tbody>';
+   tb.forEach(t=>{h+='<tr><td>'+esc(t.name)+'</td><td>'+(t.rows==null?'':t.rows)+'</td><td class="loc">'+esc((t.columns||[]).join(', '))+'</td></tr>';});
+   h+='</tbody></table>'; } });
+ if(h){const d=document.createElement('div'); d.innerHTML='<div style="margin:6px 0 10px 22px">'+h+'</div>'; kids.appendChild(d);}
+}
 document.addEventListener('keydown',e=>{
  const q=document.getElementById('q');
  if(e.key==='/' && document.activeElement!==q){e.preventDefault();q.focus();}
@@ -374,9 +530,18 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
            f"<i style='width:{c1 / total * 100:.1f}%;background:var(--med)'></i>")
     supp = rs.get("suppressed_by_baseline", 0)
     supp_note = f" · {supp} hidden by baseline" if supp else ""
-    metaline = (f"Target: <b>{_h.escape(m['target'])}</b> · {m['files_scanned']} scanned / "
+    metaline = (f"Target: <b class=\"tgt\" data-real=\"{_h.escape(m['target'], quote=True)}\">{_h.escape(m['target'])}</b>"
+                f" · {m['files_scanned']} scanned / "
                 f"{m['files_seen']} seen · {m['nested']} nested · {m['git_blobs']} git-history · "
                 f"{m['seconds']}s{supp_note} · {_h.escape(m['generated'])} · v{m['version']}")
+    cov = m.get("coverage") or {}
+    _lbl = {"scanned": "content scanned", "archives": "archives unpacked", "media_skipped": "media skipped",
+            "binary_skipped": "binary skipped", "document_failed": "documents unreadable",
+            "ocr_unavailable": "images without OCR",
+            "too_big": "too big", "timeout": "timed out", "error": "errors"}
+    cov_parts = [f"{v:,} {_lbl.get(k, k)}" for k, v in cov.items() if v]
+    if cov_parts:
+        metaline += "<br>Coverage: " + " · ".join(cov_parts)
     mask_badge = '<span class="badge-mask">MASKED</span>' if m.get("masked") else ""
 
     all_f = payload["findings"]

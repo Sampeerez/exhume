@@ -26,10 +26,14 @@ class Detector:
     anchors: tuple[str, ...] = ()
     # Name of a validator (in VALIDATORS) that confirms the match is real.
     validator: str | None = None
+    # Name of a line-level filter (in LINE_FILTERS) that sees the whole line + match span.
+    context: str | None = None
 
 
-def _d(name, pattern, sev, *, flags=0, entropy=False, verifier=None, anchors=(), validator=None):
-    return Detector(name, re.compile(pattern, flags), sev, entropy, verifier, tuple(anchors), validator)
+def _d(name, pattern, sev, *, flags=0, entropy=False, verifier=None, anchors=(), validator=None,
+       context=None):
+    return Detector(name, re.compile(pattern, flags), sev, entropy, verifier, tuple(anchors), validator,
+                    context)
 
 
 C, H, M = Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM
@@ -129,11 +133,11 @@ DETECTORS: list[Detector] = [
 
     # --- PII ---
     _d("Email", r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b", M, anchors=("@",)),
-    _d("IBAN", r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){3,7}(?:[ ]?[A-Z0-9]{1,3})?\b", H),
+    _d("IBAN", r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){3,7}(?:[ ]?[A-Z0-9]{1,3})?\b", H, validator="iban"),
     _d("Credit card", r"\b(?:4\d{3}|5[1-5]\d{2}|3[47]\d{2}|6(?:011|5\d{2}))[ -]?\d{4}[ -]?\d{4}[ -]?\d{3,4}\b",
-       H, validator="luhn"),
-    _d("Spanish DNI/NIF", r"\b\d{8}[ -]?[A-HJ-NP-TV-Z]\b", M),
-    _d("Spanish NIE", r"\b[XYZ][ -]?\d{7}[ -]?[A-HJ-NP-TV-Z]\b", M),
+       H, validator="card"),
+    _d("Spanish DNI/NIF", r"\b\d{8}[ -]?[A-HJ-NP-TV-Z]\b", M, validator="dni"),
+    _d("Spanish NIE", r"\b[XYZ][ -]?\d{7}[ -]?[A-HJ-NP-TV-Z]\b", M, validator="nie"),
     _d("US SSN", r"\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b", M, anchors=("-",)),
 
     # --- Network surface (validated: REAL addresses/links, not bare numbers) ---
@@ -142,11 +146,35 @@ DETECTORS: list[Detector] = [
        r"192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|"
        r"[^\s/'\"]*\.(?:local|internal|intranet|corp|lan))[^\s'\"]*", M, anchors=("http",)),
     _d("URL", r"https?://[^\s'\"<>()\[\]]+", M, anchors=("http",), validator="url_public"),
-    _d("Private IP (RFC1918)", r"(?<![\w.])\d{1,3}(?:\.\d{1,3}){3}(?![\w.])", M, validator="ipv4_private"),
-    _d("Public IPv4", r"(?<![\w.])\d{1,3}(?:\.\d{1,3}){3}(?![\w.])", M, validator="ipv4_public"),
+    _d("Private IP (RFC1918)", r"(?<![\w.])\d{1,3}(?:\.\d{1,3}){3}(?![\w.])", M, validator="ipv4_private", context="ip_private"),
+    _d("Public IPv4", r"(?<![\w.])\d{1,3}(?:\.\d{1,3}){3}(?![\w.])", M, validator="ipv4_public", context="ip_public"),
     _d("IPv6 address",
        r"(?<![:\w.])(?:[A-Fa-f0-9]{0,4}:){2,}[A-Fa-f0-9]{0,4}(?![:\w.])", M, validator="ipv6"),
 ]
+
+_HEADING = re.compile(r"^\s*\d+(?:\.\d+)*\.?\s+[^\W\d_]")      # "3.2.2.1 Title" (TOC / numbered section)
+_IP_HINT = re.compile(
+    r"(?i)\b(ip|ips|host|hostname|server|servidor|srv|dns|gateway|gw|addr|address|direcci[oó]n|"
+    r"puerto|port|ssh|rdp|vpn|ftp|smb|sftp|telnet|proxy|nat|subnet|netmask|mask|ping|nslookup|"
+    r"connect|conectar|remote|remoto|endpoint|lan|wan)\b|://|@|:\d{2,5}\b")
+
+
+def _octets_ok(s: str) -> bool:
+    return all(not (len(o) > 1 and o.startswith("0")) for o in s.split("."))
+
+
+def _ip_private_ctx(line: str, start: int, end: int) -> bool:
+    return _octets_ok(line[start:end]) and not _HEADING.match(line[:end + 1] if start == 0 else "")
+
+
+def _ip_public_ctx(line: str, start: int, end: int) -> bool:
+    """Public IPs are only reported when the line talks about hosts/networks (no manual numbering)."""
+    if not _octets_ok(line[start:end]) or _HEADING.match(line):
+        return False
+    return line.strip() == line[start:end] or bool(_IP_HINT.search(line))
+
+
+LINE_FILTERS = {"ip_private": _ip_private_ctx, "ip_public": _ip_public_ctx}
 
 # Generic high-entropy secret (single pass per line)
 GENERIC_SECRET = re.compile(r"['\"=:\s]([A-Za-z0-9+/\-_]{24,})['\"\s;,]")
@@ -157,7 +185,8 @@ ENTROPY_DENY = re.compile(
 AWS_SECRET_RE = re.compile(r"\b[A-Za-z0-9/+]{40}\b")
 
 _PLACEHOLDER = re.compile(
-    r"(?i)^(true|false|null|none|example|changeme|password|yourpassword|xxx+|\.{3,}|<[^>]+>|\$\{[^}]+\})$"
+    r"(?i)^(true|false|null|none|example|changeme|password|yourpassword|xxx+|\.{3,}|\*{3,}|-{3,}|"
+    r"<[^>]+>|\[[^\]]*\]|\{[^}]*\}|%[^%]+%|\$\{[^}]+\})$"
 )
 
 

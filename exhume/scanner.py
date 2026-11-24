@@ -60,7 +60,7 @@ def _on_alarm(signum, frame):
     raise _FileTimeout()
 
 
-def _scan_one(entry: tuple[str, str]) -> list[FileResult]:
+def _scan_one(entry: tuple[str, str]) -> tuple[list[FileResult], dict]:
     rp, dp = entry
     cfg = _WORKER_CFG
     limit = getattr(cfg, "file_timeout", 0)
@@ -72,14 +72,17 @@ def _scan_one(entry: tuple[str, str]) -> list[FileResult]:
             signal.alarm(limit)
         except ValueError:  # not in the main thread (--threads mode)
             use_alarm = False
+    counter: dict = {}
     try:
-        return [r for r in process_entry(rp, dp, cfg) if r.interesting]
+        return [r for r in process_entry(rp, dp, cfg, counter=counter) if r.interesting], counter
     except _FileTimeout:
         name = os.path.basename(dp)
+        counter["timeout"] = counter.get("timeout", 0) + 1
         return [FileResult(path=dp, name=name, ext=ext_of(name), size=0,
-                           note=f"skipped (timeout >{limit}s)")]
+                           note=f"skipped (timeout >{limit}s)")], counter
     except Exception:
-        return []
+        counter["error"] = counter.get("error", 0) + 1
+        return [], counter
     finally:
         if use_alarm:
             signal.alarm(0)
@@ -104,9 +107,22 @@ def _pair_aws(findings: list[Finding], fulltext: str) -> None:
             f.detail = f.detail or "AWS secret pair present (use --verify to confirm)"
 
 
+# Detectors that only produce noise on strings pulled out of binaries.
+_NOISY_IN_BINARY = {"Credit card", "Spanish DNI/NIF", "Spanish NIE", "US SSN", "IBAN"}
+
+
+def _bump(counter: dict | None, key: str) -> None:
+    if counter is not None:
+        counter[key] = counter.get(key, 0) + 1
+
+
 def process_entry(real_path: str, display_path: str, cfg: Config,
-                  depth: int = 0, budget: ExtractionBudget | None = None) -> list[FileResult]:
-    """Analyze one entry; may return several results (nested archives)."""
+                  depth: int = 0, budget: ExtractionBudget | None = None,
+                  counter: dict | None = None) -> list[FileResult]:
+    """Analyze one entry; may return several results (nested archives).
+
+    *counter*, if given, is filled with how each entry was handled (coverage).
+    """
     try:
         size = os.path.getsize(real_path)
     except OSError:
@@ -131,13 +147,14 @@ def process_entry(real_path: str, display_path: str, cfg: Config,
     is_archive = "archive" in tags
     if is_archive and depth < cfg.max_depth and not too_big and ext not in (".iso", ".img"):
         results = [rec]
+        _bump(counter, "archives")
         b = budget or ExtractionBudget(cfg.archive_max_mb * 1024 * 1024, cfg.archive_max_files)
         tmp = tempfile.mkdtemp(prefix="exhume_")
         try:
             if extract(real_path, ext, tmp, b):
                 for child in filesystem.iter_dir(tmp, cfg.follow_links):
                     inner = f"{display_path} ::> {os.path.relpath(child, tmp)}"
-                    results.extend(process_entry(child, inner, cfg, depth + 1, b))
+                    results.extend(process_entry(child, inner, cfg, depth + 1, b, counter))
                 if b.exhausted:
                     rec.note = "extraction limit reached"
         finally:
@@ -153,20 +170,31 @@ def process_entry(real_path: str, display_path: str, cfg: Config,
     method: str | None = None
     if ext in DOC_EXTRACT and not too_big:
         text, method = extract_document(real_path, ext)
+        if text is None:
+            _bump(counter, "document_failed")
     elif ext in IMAGE_EXT and cfg.ocr and not too_big:
         text, method = ocr_image(real_path)
+        if text is None:
+            _bump(counter, "ocr_unavailable")
     elif ext in BINARY_SKIP and not cfg.scan_strings:
+        _bump(counter, "media_skipped")
         return [rec] if rec.interesting else []
     elif too_big:
         rec.note = f"skipped (>{cfg.max_size_mb}MB)"
+        _bump(counter, "too_big")
         return [rec]
     else:
         text, method = read_textish(real_path, cfg.max_bytes, want_strings)
+        if text is None:
+            _bump(counter, "binary_skipped")
 
     if text is not None:
         rec.method = method
         findings = scan_text(text, cfg.min_entropy, allow, tuple(extra_detectors),
                              use_builtin=not cfg.no_default_rules, context_width=cfg.context_width)
+        if method == "strings":
+            findings = [f for f in findings if f.detector not in _NOISY_IN_BINARY]
+        _bump(counter, "scanned")
         _apply_path(findings, display_path)
         _pair_aws(findings, text)
         rec.findings = findings
@@ -203,6 +231,11 @@ class Scanner:
         self.cfg = cfg
         self.stats = ScanStats()
         self._cleanup_dirs: list[str] = []
+        self._coverage: dict[str, int] = {}
+
+    def _add_cov(self, counter: dict) -> None:
+        for k, v in counter.items():
+            self._coverage[k] = self._coverage.get(k, 0) + v
 
     # ----- target resolution -----
     def _resolve_target(self) -> tuple[list[tuple[str, str]], list, str]:
@@ -266,6 +299,7 @@ class Scanner:
                    f"verify={'on' if cfg.verify else 'off'}.{Colors.END}")
 
             results.extend(self._scan_entries(entries, Executor, workers))
+            self.stats.coverage = dict(self._coverage)
             results.extend(self._scan_git(git_blobs))
 
             if cfg.baseline_file:
@@ -282,7 +316,7 @@ class Scanner:
                 shutil.rmtree(d, ignore_errors=True)
 
         self.stats.elapsed = time.time() - t0
-        self.stats.scanned = sum(1 for r in results if r.method)
+        self.stats.scanned = self._coverage.get("scanned") or sum(1 for r in results if r.method)
         self.stats.nested = sum(1 for r in results if " ::> " in r.path)
         self.stats.git_blobs = sum(1 for r in results if "git_history" in r.tags)
         self.stats.verified_live = sum(1 for r in results for f in r.findings
@@ -306,17 +340,21 @@ class Scanner:
         chunk = max(1, min(64, total // (workers * 4) or 1))
         try:
             with Executor(max_workers=workers, initializer=_init_worker, initargs=(self.cfg,)) as ex:
-                for done, recs in enumerate(ex.map(_scan_one, entries, chunksize=chunk), 1):
+                for done, (recs, cov) in enumerate(ex.map(_scan_one, entries, chunksize=chunk), 1):
                     out.extend(recs)
+                    self._add_cov(cov)
                     if done % 100 == 0 or done == total:
                         eprint(f"\r{Colors.GR}  {done}/{total}...{Colors.END}", end="")
         except Exception:
             # Sequential fallback if multiprocessing is unavailable in this environment.
             out.clear()
+            self._coverage.clear()
             eprint(f"\n{Colors.Y}Multiprocessing unavailable; running sequentially.{Colors.END}")
             _init_worker(self.cfg)
             for entry in entries:
-                out.extend(_scan_one(entry))
+                recs, cov = _scan_one(entry)
+                out.extend(recs)
+                self._add_cov(cov)
         eprint("")
         return out
 

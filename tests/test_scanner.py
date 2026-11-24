@@ -104,3 +104,13 @@ def test_baseline_suppresses_known(tmp_path, cfg):
     second = scanner.run()
     assert sum(len(r.findings) for r in second) == 0
     assert scanner.stats.suppressed >= 1
+
+
+def test_coverage_counts(tmp_path, cfg):
+    (tmp_path / "a.txt").write_text("hello")
+    (tmp_path / "b.mp3").write_bytes(b"\x89PNG\r\n" + b"\x00" * 50)
+    cfg.target = str(tmp_path)
+    scanner = Scanner(cfg)
+    scanner.run()
+    assert scanner.stats.coverage.get("scanned") == 1
+    assert scanner.stats.coverage.get("media_skipped") == 1

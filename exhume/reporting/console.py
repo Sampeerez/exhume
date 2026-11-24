@@ -27,6 +27,14 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
     line = (f"{C.GR}Seen:{C.END} {stats.seen}  {C.GR}scanned:{C.END} {stats.scanned}  "
             f"{C.GR}nested:{C.END} {stats.nested}  {C.GR}git-history:{C.END} {stats.git_blobs}  "
             f"{C.GR}time:{C.END} {stats.elapsed:.1f}s")
+    if stats.coverage:
+        labels = {"scanned": "content scanned", "archives": "archives unpacked",
+                  "media_skipped": "media skipped", "binary_skipped": "binary skipped",
+                  "document_failed": "documents unreadable", "ocr_unavailable": "images without OCR",
+                  "too_big": "too big",
+                  "timeout": "timed out", "error": "errors"}
+        parts = [f"{v} {labels.get(k, k)}" for k, v in stats.coverage.items() if v]
+        line += f"\n{C.GR}Coverage:{C.END} " + " · ".join(parts)
     if stats.suppressed:
         line += f"  {C.GR}baseline-hidden:{C.END} {stats.suppressed}"
     print(line)

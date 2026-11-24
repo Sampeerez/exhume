@@ -73,7 +73,51 @@ def is_luhn(value: str) -> bool:
     return luhn_valid(value)
 
 
+def is_card(value: str) -> bool:
+    """Luhn-valid AND not an obvious dummy/test number (4100000000000004...)."""
+    digits = "".join(c for c in value if c.isdigit())
+    if not luhn_valid(value):
+        return False
+    return digits.count("0") < 7
+
+
+_IBAN_LEN = {"ES": 24, "FR": 27, "DE": 22, "GB": 22, "IT": 27, "PT": 25, "NL": 18, "BE": 16,
+             "CH": 21, "AT": 20, "IE": 22, "LU": 20, "AD": 24}
+
+
+def is_iban(value: str) -> bool:
+    """ISO 13616: known country length + mod-97 checksum."""
+    v = value.replace(" ", "").upper()
+    if not (15 <= len(v) <= 34) or not v.isalnum():
+        return False
+    want = _IBAN_LEN.get(v[:2])
+    if want is not None and len(v) != want:
+        return False
+    rearranged = v[4:] + v[:4]
+    num = "".join(str(int(c, 36)) for c in rearranged)
+    return int(num) % 97 == 1
+
+
+_DNI_LETTERS = "TRWAGMYFPDXBNJZSQVHLCKE"
+
+
+def is_dni(value: str) -> bool:
+    v = value.replace(" ", "").replace("-", "").upper()
+    return len(v) == 9 and v[:8].isdigit() and _DNI_LETTERS[int(v[:8]) % 23] == v[8]
+
+
+def is_nie(value: str) -> bool:
+    v = value.replace(" ", "").replace("-", "").upper()
+    if len(v) != 9 or v[0] not in "XYZ" or not v[1:8].isdigit():
+        return False
+    return _DNI_LETTERS[int("XYZ".index(v[0]).__str__() + v[1:8]) % 23] == v[8]
+
+
 VALIDATORS = {
+    "iban": is_iban,
+    "dni": is_dni,
+    "nie": is_nie,
+    "card": is_card,
     "ipv4_private": is_ipv4_private,
     "ipv4_public": is_ipv4_public,
     "ipv6": is_ipv6,
