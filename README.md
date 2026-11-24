@@ -127,7 +127,7 @@ exhume docker://myapp:latest --sarif
 exhume s3://my-bucket/logs --verify
 
 # A single file (including an archive, which is opened recursively)
-exhume backup.zip --strings --ocr --open
+exhume backup.zip --strings --ocr
 
 # Re-audit: only show what's NEW since last time
 exhume . --baseline known.json --write-baseline known.json

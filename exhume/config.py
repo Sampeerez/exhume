@@ -17,8 +17,8 @@ class Config:
     want_html: bool = True
     want_json: bool = False
     want_sarif: bool = False
-    want_csv: bool = False
-    open_report: bool = False
+    want_csv: bool = True
+    open_report: bool = True
 
     # --- Scan scope ---
     max_size_mb: int = 100
@@ -63,6 +63,7 @@ class Config:
     min_sev: str = "all"        # all|medium|high|critical
     no_color: bool = False
     context_width: int = 64     # chars on each side of the match in the context
+    html_max: int = 50000       # max findings embedded in the HTML report (0 = all)
     mask: bool = False          # mask secret values (for client-facing reports)
 
     # --- Dependencies ---

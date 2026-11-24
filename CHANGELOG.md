@@ -8,7 +8,16 @@ All notable versions of Exhume.
 - `--file-timeout` (default 120 s): a file that takes too long is skipped and reported
   as `skipped (timeout >Ns)` instead of stalling the whole scan.
 
+- `--html-max` (default 50000): the HTML report embeds the highest-severity findings up to this
+  limit and, when truncated, an extra `.csv` with every finding is written automatically.
+
+### Changed
+- Sensible defaults, no flags needed: the HTML report opens automatically and a CSV with every
+  finding is always written (opt out with `--no-open` / `--no-csv`).
+- HTML report is paginated (100 rows/page), builds row details lazily and loads data in chunks.
+
 ### Fixed
+- HTML report rendered blank on very large scans (hundreds of thousands of findings / ~850 MB).
 - CI: pin the runner to `ubuntu-24.04`; `ubuntu-latest` (26.04) no longer ships Python 3.9.
 - Scan hanging near the end on pathological PDF/XLSX files.
 - Noisy openpyxl warnings and pdfminer messages are now suppressed in workers.

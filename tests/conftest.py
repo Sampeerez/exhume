@@ -16,6 +16,8 @@ def cfg(tmp_path) -> Config:
         use_processes=False,
         autoinstall=False,
         want_html=False,
+        open_report=False,
+        want_csv=False,
         verify=False,
     )
 

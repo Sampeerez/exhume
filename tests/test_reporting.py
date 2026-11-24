@@ -106,3 +106,13 @@ def test_html_shows_real_value_by_default(tmp_path):
                            _stats(), mask=True)
     assert masked["findings"][0]["value"] == "ghp_...cd"
     assert "ghp_REALSECRET" not in str(masked)
+
+
+def test_html_truncates_to_max_and_reports_omitted(tmp_path):
+    payload = build_payload(_sample_results(), _stats())
+    payload["findings"] = payload["findings"] * 30
+    p = tmp_path / "r.html"
+    omitted = write_html(payload, str(p), max_findings=10)
+    assert omitted == len(payload["findings"]) - 10
+    assert "highest-severity findings" in p.read_text()
+    assert write_html(payload, str(p), max_findings=0) == 0

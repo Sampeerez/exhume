@@ -33,8 +33,13 @@ def write_outputs(results: list[FileResult], stats: ScanStats, cfg: Config) -> l
         written.append(p)
     if cfg.want_html:
         p = cfg.output_prefix + ".html"
-        write_html(payload, p)
+        omitted = write_html(payload, p, cfg.html_max)
         written.append(p)
+        if omitted and not cfg.want_csv:
+            # Keep every finding reachable even when the HTML is truncated.
+            csv_p = cfg.output_prefix + ".csv"
+            write_csv(payload, csv_p)
+            written.append(csv_p)
         if cfg.open_report:
             try:
                 import webbrowser

@@ -20,7 +20,7 @@ Examples:
   exhume smb://10.0.0.5/Finance --smb-user audit --smb-pass '***'
   exhume docker://myapp:latest --sarif
   exhume s3://my-bucket/logs
-  exhume backup.zip --strings --ocr --open --rules client_rules.yaml
+  exhume backup.zip --strings --ocr --rules client_rules.yaml
   exhume . --baseline known.json           # only show NEW findings
   exhume . --mask                          # client-safe: hide secret values
   exhume . --no-verify                     # don't touch provider APIs
@@ -43,9 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
     out = p.add_argument_group("output")
     out.add_argument("--json", action="store_true")
     out.add_argument("--sarif", action="store_true")
-    out.add_argument("--csv", action="store_true")
+    out.add_argument("--csv", action="store_true", help=argparse.SUPPRESS)  # CSV is on by default
+    out.add_argument("--no-csv", action="store_true", help="Do not write the CSV with every finding")
     out.add_argument("--no-html", action="store_true")
-    out.add_argument("--open", action="store_true", help="Open the HTML report when done")
+    out.add_argument("--open", action="store_true", help=argparse.SUPPRESS)  # open is on by default
+    out.add_argument("--no-open", action="store_true", help="Do not open the HTML report when done")
     out.add_argument("--show", type=int, default=8, help="Examples per type in console output")
     out.add_argument("--min-sev", choices=["all", "medium", "high", "critical"], default="all")
     out.add_argument("--context", type=int, default=64,
@@ -97,6 +99,9 @@ def build_parser() -> argparse.ArgumentParser:
     ai.add_argument("--ai-model", default="", help="Ollama model to use (default: first available)")
     ai.add_argument("--ai-url", default="http://localhost:11434", help="Ollama base URL")
 
+    p.add_argument("--html-max", type=int, default=50000,
+                   help="Max findings embedded in the HTML report, highest severity first (0=all; "
+                        "extra findings go to an auto-written CSV)")
     perf = p.add_argument_group("performance")
     perf.add_argument("--workers", type=int, default=0, help="Worker count (0=auto)")
     perf.add_argument("--file-timeout", type=int, default=120,
@@ -122,8 +127,8 @@ def build_parser() -> argparse.ArgumentParser:
 def args_to_config(a: argparse.Namespace) -> Config:
     cfg = Config(
         target=a.target, output_prefix=a.output,
-        want_html=not a.no_html, want_json=a.json, want_sarif=a.sarif, want_csv=a.csv,
-        open_report=a.open, max_size_mb=a.max_size, min_entropy=a.min_entropy,
+        want_html=not a.no_html, want_json=a.json, want_sarif=a.sarif, want_csv=not a.no_csv,
+        open_report=not a.no_open, max_size_mb=a.max_size, min_entropy=a.min_entropy,
         max_depth=a.max_depth, archive_max_mb=a.archive_max_mb, archive_max_files=a.archive_max_files,
         follow_links=a.follow_links, scan_strings=a.strings, ocr=a.ocr, db_peek=a.db_peek,
         git_history=a.git_history, force_git=a.git, exclude=list(a.exclude), include=list(a.include),
@@ -131,7 +136,7 @@ def args_to_config(a: argparse.Namespace) -> Config:
         rules_files=list(a.rules), allowlist_file=a.allowlist, no_default_rules=a.no_default_rules,
         baseline_file=a.baseline, write_baseline_file=a.write_baseline,
         ai=a.ai, ai_model=a.ai_model, ai_url=a.ai_url,
-        workers=a.workers, file_timeout=a.file_timeout, use_processes=not a.threads,
+        workers=a.workers, file_timeout=a.file_timeout, html_max=a.html_max, use_processes=not a.threads,
         show_per_type=a.show, min_sev=a.min_sev,
         no_color=a.no_color, context_width=a.context, mask=a.mask, autoinstall=a.autoinstall,
         smb_user=a.smb_user, smb_pass=a.smb_pass, smb_domain=a.smb_domain,
