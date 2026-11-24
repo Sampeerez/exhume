@@ -62,7 +62,7 @@ def available(ai_url: str) -> list[str]:
 
 
 def _build_prompt(results: list[FileResult]) -> str:
-    findings = [f for r in results for f in r.findings]
+    findings = [f for r in results for f in r.findings if not f.hidden]
     findings.sort(key=lambda f: (f.verified is not Verified.LIVE, -int(f.severity)))
     lines = []
     for i, f in enumerate(findings[:_MAX_FINDINGS], 1):
@@ -72,26 +72,38 @@ def _build_prompt(results: list[FileResult]) -> str:
                      f"value={f.redacted} ctx={ctx!r}")
     listing = "\n".join(lines) if lines else "(no findings)"
     return (
-        f"{_SYSTEM}\n\n"
         f"Findings from an authorized audit ({len(findings)} total, showing up to {_MAX_FINDINGS}):\n"
         f"{listing}\n\n"
-        "Produce a short report with exactly these sections, in Markdown:\n"
-        "## Executive summary\n(2-3 sentences on overall exposure.)\n"
-        "## Fastest paths to access\n(An ordered list of the highest-impact findings — prefer "
-        "VERIFIED-LIVE credentials — with a one-line reason for each.)\n"
-        "## Recommended next steps\n(3-5 concrete actions for the operator.)\n"
+        "Rules: only findings tagged [VERIFIED-LIVE] are confirmed working; every other finding is "
+        "UNVERIFIED and must be described as such. Do not invent details that are not listed.\n"
+        "Produce a SHORT report (under 150 words) with exactly these sections, in Markdown:\n"
+        "## Executive summary\n(2 sentences on overall exposure.)\n"
+        "## Fastest paths to access\n(At most 4 bullets, highest impact first — prefer "
+        "VERIFIED-LIVE credentials — each one line.)\n"
+        "## Recommended next steps\n(At most 3 bullets.)\n"
     )
 
 
-def triage(results: list[FileResult], ai_url: str, model: str = "") -> dict | None:
-    """Run local triage. Returns {'model','summary'} or None if unavailable."""
+def triage(results: list[FileResult], ai_url: str, model: str = "", engine=None) -> dict | None:
+    """Run local triage. Returns {'model','summary'} or None if unavailable.
+
+    With *engine* (the bundled model, see :mod:`exhume.ai_filter`) nothing else is needed;
+    otherwise a running Ollama server is used.
+    """
+    if engine is not None and hasattr(engine, "generate"):
+        try:
+            text = engine.generate(_SYSTEM, _build_prompt(results), max_tokens=380).strip()
+        except Exception:
+            text = ""
+        if text:
+            return {"model": getattr(engine, "name", "local AI"), "summary": text}
     models = available(ai_url)
     if not models:
         return None
     chosen = model or models[0]
     st, raw = _post(
         ai_url.rstrip("/") + "/api/generate",
-        {"model": chosen, "prompt": _build_prompt(results), "stream": False,
+        {"model": chosen, "prompt": f"{_SYSTEM}\n\n{_build_prompt(results)}", "stream": False,
          "options": {"temperature": 0.2}},
         _GEN_TIMEOUT,
     )

@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "exhume"
-version = "7.0.1"
+version = "7.1.0"
 description = "Sensitive-data discovery and verification suite for security audits / pentesting."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "Exhume contributors" }]
+authors = [{ name = "Sampeerez" }]
 keywords = ["security", "secrets", "pentesting", "audit", "dfir", "credentials", "scanner"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -31,7 +31,7 @@ ai = ["llama-cpp-python"]
 # Todo de golpe:
 full = [
     "pdfplumber", "python-docx", "openpyxl", "python-pptx", "extract-msg",
-    "py7zr", "rarfile", "impacket", "boto3", "pillow", "pytesseract", "PyYAML", "llama-cpp-python",
+    "py7zr", "rarfile", "impacket", "boto3", "pillow", "pytesseract", "PyYAML",
 ]
 dev = ["pytest", "pytest-cov", "ruff"]
 
@@ -39,8 +39,8 @@ dev = ["pytest", "pytest-cov", "ruff"]
 exhume = "exhume.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/exhume"
-Issues = "https://github.com/your-org/exhume/issues"
+Homepage = "https://github.com/Sampeerez/exhume"
+Issues = "https://github.com/Sampeerez/exhume/issues"
 
 [tool.setuptools.packages.find]
 include = ["exhume*"]

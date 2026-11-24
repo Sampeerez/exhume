@@ -2,8 +2,8 @@
 #
 #   # .pre-commit-config.yaml in the consumer repo
 #   repos:
-#     - repo: https://github.com/your-org/exhume
-#       rev: v7.0.0
+#     - repo: https://github.com/Sampeerez/exhume
+#       rev: main
 #       hooks:
 #         - id: exhume
 #
@@ -13,5 +13,5 @@
   entry: exhume
   language: python
   pass_filenames: false
-  # Fast, offline gate: no network verification, no AI, no HTML report.
-  args: ["--no-verify", "--no-ai", "--no-html", "--no-git-history", "--min-sev", "high", "."]
+  # Fast, offline gate: no network verification, no AI, no report files.
+  args: ["--no-verify", "--no-ai", "--no-html", "--no-csv", "--no-open", "--no-git-history", "--min-sev", "high", "."]

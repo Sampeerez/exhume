@@ -20,10 +20,12 @@ remaining matches inherit the verdict when the first samples all agree.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -101,9 +103,49 @@ _GROUP_HARD_CAP = 40       # max items judged per (file, detector) group
 
 # ---------------------------------------------------------------- engines
 
+def home_dir() -> Path:
+    return Path(os.environ.get("EXHUME_HOME") or os.path.join(os.path.expanduser("~"), ".cache", "exhume"))
+
+
 def cache_dir() -> Path:
-    base = os.environ.get("EXHUME_HOME") or os.path.join(os.path.expanduser("~"), ".cache", "exhume")
-    return Path(base) / "models"
+    return home_dir() / "models"
+
+
+class VerdictCache:
+    """Remembers decisive verdicts between runs (re-audits of the same share are much faster)."""
+
+    def __init__(self, model: str):
+        self.model = model
+        self.path = home_dir() / "verdicts.json"
+        self.data: dict[str, str] = {}
+        self.dirty = False
+        try:
+            self.data = json.loads(self.path.read_text())
+        except Exception:
+            self.data = {}
+
+    def key(self, f: Finding) -> str:
+        own = next((t for n, t in (f.context_block or []) if n == f.line), f.context or "")
+        raw = f"{self.model}|{_kind(f)}|{f.secret}|{own[:300]}"
+        return hashlib.sha1(raw.encode("utf-8", "replace")).hexdigest()
+
+    def get(self, f: Finding) -> str | None:
+        return self.data.get(self.key(f))
+
+    def put(self, f: Finding, verdict: str) -> None:
+        self.data[self.key(f)] = verdict
+        self.dirty = True
+
+    def save(self) -> None:
+        if not self.dirty:
+            return
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.data))
+            os.replace(tmp, self.path)
+        except OSError:
+            pass
 
 
 class LlamaEngine:
@@ -140,6 +182,15 @@ class LlamaEngine:
         probabilities of the first answer token: FALSE needs FALSE_THRESHOLD of the REAL/FALSE mass.
         """
         return "FALSE" if self.p_false(system, user, shots) >= FALSE_THRESHOLD else "REAL"
+
+    def generate(self, system: str, user: str, max_tokens: int = 500) -> str:
+        """Free-form generation (used for the triage summary)."""
+        self._llm.reset()
+        out = self._llm.create_chat_completion(
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            max_tokens=max_tokens, temperature=0.2)
+        self._llm.reset()
+        return out["choices"][0]["message"]["content"]
 
     def _eval_cached(self, text: str) -> None:
         """Evaluate *text*, reusing the KV cache of the shared (system + examples) prefix."""
@@ -178,6 +229,15 @@ class OllamaEngine:
     def __init__(self, url: str, model: str):
         self.url, self.model = url.rstrip("/"), model
         self.name = f"Ollama {model}"
+
+    def generate(self, system: str, user: str, max_tokens: int = 500) -> str:
+        body = json.dumps({"model": self.model, "stream": False, "prompt": f"{system}\n\n{user}",
+                           "options": {"temperature": 0.2, "num_predict": max_tokens}}).encode()
+        req = urllib.request.Request(self.url + "/api/generate", data=body,
+                                     headers={"Content-Type": "application/json"})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=180) as r:
+            return json.loads(r.read()).get("response", "")
 
     def ask(self, system: str, user: str, shots: tuple = ()) -> str:
         examples = "".join(f"{q}\nAnswer: {a}\n\n" for q, a in shots)
@@ -340,7 +400,8 @@ def _label(f: Finding, verdict: str, how: str) -> None:
 def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
     """Judge ambiguous findings in place. Returns counters for reporting."""
     cand = [f for r in results for f in r.findings if _is_judged(f)]
-    stats = {"candidates": len(cand), "asked": 0, "real": 0, "false": 0, "inherited": 0, "skipped": 0}
+    stats = {"candidates": len(cand), "asked": 0, "cached": 0, "real": 0, "false": 0, "inherited": 0,
+             "skipped": 0}
     if not cand:
         return stats
     # most severe / most relevant first so the call budget is spent where it matters
@@ -352,24 +413,32 @@ def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
     by_value: dict[tuple, str] = {}
     by_ctx: dict[tuple, str] = {}
     name = getattr(engine, "name", "local AI")
+    vcache = VerdictCache(name)
+    t0 = time.monotonic()
 
     def ask(f: Finding) -> str | None:
         k1, k2 = (f.detector, f.secret), _ctx_key(f)
         hit = by_value.get(k1) or by_ctx.get(k2)
         if hit:
             return hit
+        old = vcache.get(f)
+        if old:
+            stats["cached"] += 1
+            by_value[k1] = by_ctx[k2] = old
+            return old
         if stats["asked"] >= max_calls:
             return None
         stats["asked"] += 1
         if stats["asked"] % 25 == 0:
-            eprint(f"\r{Colors.GR}  AI judged {stats['asked']} matches...{Colors.END}", end="")
+            rate = (time.monotonic() - t0) / stats["asked"]
+            eprint(f"\r{Colors.GR}  AI judged {stats['asked']} matches ({rate:.2f}s each)...{Colors.END}", end="")
         try:
             v = _parse(engine.ask(_SYSTEM, _prompt(f), _shots(f)))
         except Exception:
             return None
         if v:
-            by_value[k1] = v
-            by_ctx[k2] = v
+            by_value[k1] = by_ctx[k2] = v
+            vcache.put(f, v)
         return v
 
     for items in groups.values():
@@ -404,6 +473,7 @@ def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
                     stats["skipped"] += 1
             stats["skipped"] += max(0, len(rest) - max(0, _GROUP_HARD_CAP - idx))
     eprint("")
+    vcache.save()
     return stats
 
 
@@ -460,6 +530,7 @@ def judge_assets(results: list[FileResult], engine, max_calls: int = 1500) -> di
             continue          # secrets-looking names / keys are never hidden
         if (r.db_info or {}).get("sensitive_columns") or any(not f.hidden for f in r.findings):
             r.ai_verdict = "real"      # holds findings / sensitive columns: always worth listing
+            stats["real"] += 1
             continue
         key = (tag, r.name.lower(), bool(r.db_info and r.db_info.get("tables")))
         if key not in cache:

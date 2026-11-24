@@ -1,251 +1,156 @@
+<div align="center">
+
 # 🔎 Exhume
 
-[![CI](https://github.com/your-org/exhume/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/exhume/actions/workflows/ci.yml)
-[![Docker](https://github.com/your-org/exhume/actions/workflows/docker.yml/badge.svg)](https://github.com/your-org/exhume/actions/workflows/docker.yml)
-![Python](https://img.shields.io/badge/python-3.9%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+**Unearth buried secrets — and know which ones are real.**
 
-**Sensitive-data discovery and verification suite for security audits and pentesting.**
+Sensitive-data discovery and verification for security audits and pentests.
 
-*Verify + leak.* Exhume scans any target — folders, SMB shares (mounted or not), Docker images, S3 buckets, Git repositories or single files — and extracts **everything** that could be a secret: credentials, tokens, private keys, PII, **real** IP addresses and links (validated, not bare numbers), connection strings, databases and more. And it doesn't stop at finding them: it **confirms whether each credential is live** by authenticating against the provider API.
-
-It doesn't only look where it's easy: it reads **inside** PDF, Word, Excel, PowerPoint, emails, images (OCR, on by default), nested archives, **executables and key files** (string-scanned), and the **full Git history**. It catches secrets even when the variable name isn't the usual one, thanks to a broad keyword set plus a high-entropy pass.
-
-A **bundled local AI** (a small open model that Exhume installs and downloads by itself on first run, ~2.1 GB) reads each ambiguous match in context and separates real data from look-alikes — a version number or manual section is not an IP, an invoice total is not a card. It also prioritizes the findings in the report. Everything runs on your machine; Ollama is used as a fallback if it is already running.
-
-When a match sits in a huge line (a minified JS file, a pasted dump), Exhume doesn't dump the whole wall of text at you — it shows a **focused window around the match** (configurable with `--context`), so you see only what matters.
-
-> ⚠️ **For authorized audits only.** This tool — and especially `--verify`, which authenticates with the credentials it finds — must only be used against systems and data you have explicit written permission to test.
+[![CI](https://github.com/Sampeerez/exhume/actions/workflows/ci.yml/badge.svg)](https://github.com/Sampeerez/exhume/actions/workflows/ci.yml)
+[![Docker](https://github.com/Sampeerez/exhume/actions/workflows/docker.yml/badge.svg)](https://github.com/Sampeerez/exhume/actions/workflows/docker.yml)
+![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
+![Local AI](https://img.shields.io/badge/AI-100%25%20local-8b5cf6)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ![Exhume demo](docs/demo.gif)
 
----
+</div>
 
-## ✨ Why Exhume
+> ⚠️ **Authorized audits only.** Exhume authenticates with the credentials it finds and probes the IPs it
+> discovers. Use it only on systems and data you have written permission to test.
 
-The leading tools are excellent but specialized:
+## What it does
 
-| | Exhume | TruffleHog | Gitleaks | Nosey Parker |
-|---|:---:|:---:|:---:|:---:|
-| Regex + entropy | ✅ | ✅ | ✅ | ✅ |
-| **Live credential verification** | ✅ | ✅ | ❌ | ❌ |
-| Git history | ✅ | ✅ | ✅ | ✅ |
-| **Inside PDF/DOCX/XLSX/PPTX** | ✅ | ⚠️ | ❌ | ❌ |
-| **Image OCR** | ✅ | ❌ | ❌ | ❌ |
-| **Nested archives (zip/tar/7z/rar)** | ✅ | ⚠️ | ❌ | ❌ |
-| **Unmounted SMB** | ✅ | ❌ | ❌ | ❌ |
-| Docker / S3 | ✅ | ✅ | ❌ | ❌ |
-| **SQLite database peek** | ✅ | ❌ | ❌ | ❌ |
-| **Validated IPs/URLs (real, not numbers)** | ✅ | ❌ | ❌ | ❌ |
-| **Focused context around the match** | ✅ | ❌ | ❌ | ❌ |
-| **Local-AI triage of findings** | ✅ | ❌ | ❌ | ❌ |
-| Baseline / re-audit diffing | ✅ | ❌ | ✅ | ❌ |
-| Custom rules | ✅ (YAML/JSON) | ✅ | ✅ (TOML) | ✅ |
-| SARIF / JSON / CSV / HTML output | ✅ | ⚠️ | ✅ | ⚠️ |
+Point it at a folder, an SMB share, a Docker image, an S3 bucket, a Git repo (history included) or a single
+file. Exhume reads **inside** PDF, Word, Excel, PowerPoint, e-mails, images (OCR), nested archives and
+binaries, and reports credentials, tokens, private keys, PII (cards, IBAN, DNI/NIE, SSN), IPs, URLs,
+connection strings and databases. Then it works out **which findings are real**:
 
-Exhume combines TruffleHog's **verification**, the **Git history** scanning of Gitleaks/Nosey Parker, and adds what none of them do well: **reading inside office documents, images and nested archives**, which is where sensitive data actually hides in a real audit.
+| Step | What happens |
+|---|---|
+| **1 · Detect** | ~70 detectors + a high-entropy pass, with a focused snippet around each match. |
+| **2 · Check** | IBAN (mod-97 + Spanish account digits), cards (Luhn), DNI/NIE (control letter); every IP is probed (TCP + reverse DNS). Nothing is dropped — failures are flagged *invalid*. |
+| **3 · Verify** | Credentials are tested against the provider API (AWS, GitHub, GitLab, Slack, Stripe…) → **LIVE** / dead. |
+| **4 · Judge** | A **bundled local AI** reads each ambiguous match in context: `3.2.2.1` in a manual is not an IP, an invoice total is not a card. False positives are hidden, never deleted. |
 
-### Why Python and not Go/Rust?
-
-The fastest tools for *raw regex* are written in Go (Gitleaks) or Rust (Nosey Parker). But Exhume's value isn't just scanning text fast — it's **extracting** content from PDF, DOCX, XLSX, PPTX, emails, OCR, SQLite and archives. Those extraction libraries live in the Python ecosystem and have no mature Go/Rust equivalent. Rewriting the engine would lose exactly what makes the tool unique.
-
-Speed comes from engineering, not from switching languages:
-
-- **True multiprocessing** (multi-core) — sidesteps the GIL for CPU-bound regex work.
-- **Config is serialized once per worker**, not per task (big win on large trees).
-- **Literal-anchor prefiltering** — a detector only runs its regex on lines containing its keyword.
-- **Early skipping** of binaries and noisy directories; size caps.
-- **Precompiled regex**, reused across all workers; **Git blob dedup** by SHA.
-
----
-
-## 🚀 Installation
+## Quick start
 
 ```bash
-# Core (standard library only, works right away):
-pip install -e .
-
-# With all capabilities (documents, archives, SMB/S3, OCR, YAML):
+git clone https://github.com/Sampeerez/exhume && cd exhume
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[full]"
+
+exhume /path/to/target        # that's it: scan → HTML report opens in your browser
 ```
 
-Exhume **works with no optional dependencies** and **auto-installs** them the first time it needs one (disable with `--no-autoinstall`). OCR also needs the system `tesseract` binary.
+No flags needed. Exhume writes `exhume_report.html` (interactive) and `exhume_report.csv` (every finding).
 
-### Docker
+**First run:** the local AI installs itself — `llama-cpp-python` plus a 2.1 GB open model (Qwen2.5-3B) in
+`~/.cache/exhume`. Later runs reuse it, and remember earlier verdicts. Scanned data never leaves your machine
+(only that one-time model download uses the network). Prefer to skip it? `--no-ai`.
 
-The image bundles everything (Python extras, `tesseract` for OCR, `git` for history scanning):
+<details>
+<summary>Requirements & other ways to install</summary>
+
+- Python 3.9+, macOS or Linux. OCR needs the `tesseract` binary (`brew install tesseract` / `apt install tesseract-ocr`).
+- The AI runtime ships as a prebuilt wheel for common platforms; otherwise it needs a C/C++ toolchain + CMake. If it can't
+  be installed, Exhume falls back to a running [Ollama](https://ollama.com) or just reports matches unjudged.
+- Core only (standard library, no extras): `pip install -e .` — extras auto-install when first needed (`--no-autoinstall` to forbid).
+- **Docker** (everything bundled; keep the model between runs with a volume):
+  ```bash
+  docker build -t exhume .
+  docker run --rm -v exhume-cache:/home/auditor/.cache/exhume -v "$PWD:/scan" exhume /scan --no-open
+  ```
+</details>
+
+## Usage
 
 ```bash
-docker build -t exhume .
-# Scan the current directory (mounted read-write at /scan):
-docker run --rm -v "$PWD:/scan" exhume /scan --json
-# Or pull the published image:
-docker run --rm -v "$PWD:/scan" ghcr.io/your-org/exhume:latest /scan
+exhume /mnt/share                                  # folder or mounted share
+exhume . --git --only-verified                     # repo + full history, show only LIVE credentials
+exhume smb://10.0.0.5/Finance --smb-user audit --smb-pass '***'
+exhume docker://myapp:latest --sarif               # image
+exhume s3://my-bucket/logs                         # bucket
+exhume backup.zip --deep                           # archive, exhaustive (strings + OCR + depth)
+exhume . --baseline known.json --write-baseline known.json   # re-audit: only what's new
+exhume . --mask --no-open                          # client-safe output
 ```
 
-### Pre-commit hook
+<details>
+<summary>All the options that matter</summary>
 
-Block commits that introduce secrets. In another repo's `.pre-commit-config.yaml`:
+| Option | Effect |
+|---|---|
+| `--no-ai` · `--ai-gguf FILE` · `--ai-max-calls N` | Disable the AI · use another `.gguf` model · cap model calls (default 4000) |
+| `--no-verify` · `--no-ip-probe` | No credential API calls · no IP probing (offline gate) |
+| `--only-verified` | Show only LIVE credentials |
+| `--mask` | Mask secret values (default shows real ones — the operator needs them) |
+| `--no-open` · `--no-csv` · `--no-html` · `--json` · `--sarif` | Choose outputs (HTML + CSV by default) |
+| `--html-max N` | Findings embedded in the HTML, highest severity first (default 50 000; the CSV always has all) |
+| `--git` / `--no-git-history` | Force / skip Git history |
+| `--include` / `--exclude GLOB` | Scope by path (repeatable) |
+| `--strings` · `--no-ocr` · `--quick` · `--deep` | Binary strings · OCR off · fast / exhaustive profiles |
+| `--rules FILE` · `--allowlist FILE` | Custom YAML/JSON rules ([example](rules/example.yaml)) · regexes to ignore |
+| `--file-timeout S` · `--workers N` | Per-file time limit (default 120 s) · parallelism |
+
+`exhume --help` lists everything. Exit code is `1` when High/Critical findings exist.
+</details>
+
+## The report
+
+An interactive, self-contained HTML dashboard:
+
+- **Filter & triage** — by severity, detector or text; paginated, so it stays fast with 100 000+ findings.
+- **Real vs. noise** — "Hide invalid / AI false positives" is on by default (one click to see what was discarded and *why*).
+- **Dismiss** false positives yourself — one, by file, by value or by detector; saved in your browser; **Export reviewed CSV**.
+- **📷 Report mode** — censors values and context, shows relative paths and hides every control, ready for a client screenshot.
+- **Assets** — databases, configs, keys and executables as collapsible folder trees (thumbnail caches and similar noise filtered out).
+- **Coverage** line: how many files were scanned, skipped or unreadable — so you know nothing was silently missed.
+
+## Use it in your pipeline
 
 ```yaml
+# .pre-commit-config.yaml — blocks commits that add High/Critical secrets (offline, no AI)
 repos:
-  - repo: https://github.com/your-org/exhume
-    rev: v7.0.0
+  - repo: https://github.com/Sampeerez/exhume
+    rev: main
     hooks:
       - id: exhume
 ```
 
-Then `pre-commit install`. The hook runs an offline gate (`--no-verify --no-ai --no-html --min-sev high`) and fails the commit on High/Critical findings.
-
-### CI/CD gate
-
-Exhume exits with code **1** when any High/Critical finding is present, so it drops into a pipeline directly:
-
 ```yaml
-# .github/workflows/secrets.yml
-- run: pipx run exhume . --no-html --json -o exhume --min-sev high
+# GitHub Actions — fails the job on High/Critical findings
+- run: pipx run --spec "git+https://github.com/Sampeerez/exhume" exhume . --no-open --no-csv --no-ai --no-verify --min-sev high
 ```
 
----
-
-## 📖 Usage
-
-```bash
-# Folder or mounted SMB share
-exhume /mnt/share
-
-# Full Git repo (history included) + verify live credentials, show only live ones
-exhume . --git --verify --only-verified
-
-# Unmounted SMB share
-exhume smb://10.0.0.5/Finance --smb-user audit --smb-pass '***'
-
-# Docker image
-exhume docker://myapp:latest --sarif
-
-# S3 bucket
-exhume s3://my-bucket/logs --verify
-
-# A single file (including an archive, which is opened recursively)
-exhume backup.zip --strings --ocr
-
-# Re-audit: only show what's NEW since last time
-exhume . --baseline known.json --write-baseline known.json
-
-# Reveal the real secret values (the operator needs them to use the credential)
-exhume . --reveal
-```
-
-### Key options
-
-| Option | What it does |
-|---|---|
-| `--no-verify` | Disable live verification (ON by default; makes network requests with found creds). |
-| `--only-verified` | Show only **LIVE** credentials. |
-| `--reveal` | Print the **real** secret values instead of masked ones (authorized use only). |
-| `--git` / `--no-git-history` | Force / disable the Git-history scan. |
-| `--baseline FILE` | Suppress findings already present in a baseline; `--write-baseline FILE` records the current ones. |
-| `--exclude GLOB` / `--include GLOB` | Scope the scan by path glob (repeatable). |
-| `--context N` | Context chars on each side of the match (def 64; `0` = value only). |
-| `--strings` | Scan printable strings inside binaries/executables. |
-| `--no-ocr` | Disable image OCR (on by default when tesseract is present). |
-| `--rules FILE` | Custom YAML/JSON rules (repeatable). |
-| `--allowlist FILE` | Regexes (one per line) to ignore. |
-| `--no-ai` / `--ai-gguf` / `--ai-max-calls` / `--ai-model` | Disable the local AI / use another `.gguf` model file / cap model calls (default 4000) / choose the Ollama triage model. |
-| `--deep` / `--quick` | Exhaustive / fast profiles. |
-| `--json --csv --sarif` | Extra output formats (HTML always, unless `--no-html`). |
-
-Run `exhume --help` for the full list.
-
-### Credential verification
-
-Verification is **on by default** (disable with `--no-verify`). Inspired by TruffleHog: for detectors with a verifier, Exhume makes **one** request to the provider API and classifies each finding as:
-
-- **✓ LIVE** — the credential authenticates (real access).
-- **✗ dead** — rejected (401/403).
-- *unknown* — no network or no verifier.
-
-Providers with active verification: **AWS** (SigV4 signature against STS `GetCallerIdentity`, pairing Access Key + Secret), GitHub, GitLab, Slack, Stripe, SendGrid, DigitalOcean, Telegram, Discord, npm and Postman.
-
-### Local AI: real data vs. false positives
-
-On first run Exhume installs `llama-cpp-python` and downloads Qwen2.5-3B-Instruct (Q4, ~2.1 GB) into `~/.cache/exhume` — nothing to set up. Matches that are ambiguous without context (IPs, cards, IBANs, DNI/NIE/SSN, password assignments) are judged with their surrounding text; ones judged false positives are kept but hidden by default (HTML toggle, CSV/JSON `ai` column). Only that one-time model download touches the network; scanned data never leaves the machine. To use a larger/better model: `--ai-gguf /path/model.gguf`. Disable with `--no-ai`.
-
-### Local AI triage
-
-With [Ollama](https://ollama.com) running locally, Exhume sends the (masked) findings to your local model and gets back a prioritized, pentester-oriented summary — an executive overview, the fastest paths to access, and recommended next steps — rendered at the top of the HTML report and in the console. It is **on by default** and **silently skipped** when no local model is reachable. Detection and verification never depend on the AI: they are deterministic. Nothing is sent to any cloud, and the model only ever receives masked values.
-
-```bash
-exhume . --verify                 # AI triage runs automatically if Ollama is up
-exhume . --ai-model qwen2.5:7b    # pick a model
-exhume . --no-ai                  # disable triage
-```
-
----
-
-## 📊 The report
-
-Every scan writes a self-contained **HTML dashboard** with summary cards (Critical / High / Medium / Verified-live / Total), a severity bar, live filtering by text and severity, and a "verified only" toggle. JSON, CSV and SARIF are available too (`--json --csv --sarif`) for pipelines and tools like GitHub code scanning or DefectDojo.
-
----
-
-## 🧩 Architecture
-
-Modular package, each piece with a single responsibility:
+## Under the hood
 
 ```
 exhume/
-├── cli.py              # command-line interface
-├── config.py           # configuration (picklable dataclass)
-├── models.py           # Finding, FileResult, Severity, Verified
-├── scanner.py          # engine: orchestrates everything (multiprocessing)
-├── baseline.py         # re-audit diffing (fingerprints)
-├── ai.py               # optional local-AI triage (Ollama)
-├── ai_filter.py        # bundled local AI: real data vs. false positives
-├── deps.py             # optional dependencies + auto-install
-├── detectors/          # detection engine
-│   ├── patterns.py     #   ~68 built-in detectors
-│   ├── entropy.py      #   Shannon + Luhn
-│   ├── validators.py   #   real IP/URL/card validation (ipaddress)
-│   └── rules.py        #   YAML/JSON rules + allowlist
-├── extractors/         # content extraction
-│   ├── documents.py    #   PDF, DOCX, XLSX, PPTX, EML, MSG
-│   ├── archives.py     #   zip/tar/gz/7z/rar (recursive, zip-bomb safe)
-│   ├── text.py         #   binary-aware reading + strings
-│   ├── ocr.py          #   image OCR
-│   ├── sqlite_peek.py  #   database inspection
-│   └── magic.py        #   extension + magic-byte classification
-├── sources/            # where to read from
-│   ├── filesystem.py · git_history.py · smb.py · docker.py · s3.py
-├── verify/             # active credential verification
-└── reporting/          # console · html · json · csv · sarif
+├── scanner.py      engine (multiprocessing, per-file timeout, coverage counters)
+├── detectors/      patterns · entropy · validators (IBAN/card/DNI/IP) · custom rules
+├── extractors/     documents · archives · OCR · SQLite · magic bytes
+├── sources/        filesystem · git history · SMB · Docker · S3
+├── verify/         credential verifiers (provider APIs) · IP liveness
+├── ai_filter.py    bundled local AI: judges matches & assets, verdict cache
+├── ai.py           triage summary (bundled model, or Ollama)
+└── reporting/      console · html · json · csv · sarif
 ```
 
----
+Python rather than Go/Rust on purpose: the value is *extracting* content from office files, images and archives,
+where the best libraries live. Speed comes from true multiprocessing, anchor-based regex prefiltering, early
+skipping of binaries and Git-blob dedup.
 
-## 🔒 Report safety
-
-Reports get shared, so a secret's **plaintext value is never written** to output by default: both the value and the context line are masked (even with several credentials on the same line). The secret only lives in memory during the run. Pass `--reveal` to include real values when the operator needs them — the output is then clearly flagged as confidential. The bundled `.gitignore` keeps reports and evidence out of the repo.
-
----
-
-## 🧪 Development
+## Development
 
 ```bash
-make install-full   # install with extras + dev tools
-make test           # pytest
-make cov            # coverage
-make lint           # ruff
+make install-full   # extras + dev tools        make test   # pytest
+make lint           # ruff                      make demo   # regenerate docs/demo.gif from a real run
 ```
 
-The suite covers detectors, entropy/Luhn, validators, nested archives, Git history, rules, verification (HTTP mocked), reporting, baseline/exclude and end-to-end integration.
+## Legal
 
----
+Exhume is for **security professionals performing authorized audits**. You are solely responsible for having
+explicit written authorization over the systems and data you analyze; the authors accept no liability for misuse.
 
-## ⚖️ Legal notice
-
-Exhume is a tool for **security professionals performing authorized audits**. Using `--verify` authenticates against real services with the discovered credentials. You are solely responsible for having explicit written authorization over the systems and data you analyze. The authors are not liable for misuse.
-
-## 📄 License
-
-MIT — see [LICENSE](LICENSE).
+MIT licensed — see [LICENSE](LICENSE).

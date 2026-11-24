@@ -80,3 +80,34 @@ def test_judge_assets_hides_noise_and_keeps_sensitive():
     st = ai_filter.judge_assets([noise, keep, secret], E())
     assert noise.ai_verdict == "false" and keep.ai_verdict == "real" and secret.ai_verdict is None
     assert st["asked"] == 2
+
+
+def test_verdicts_are_remembered_between_runs():
+    res = _results(["3.2.2.1 Seguridad"])
+    first = FakeEngine()
+    ai_filter.judge(res, first)
+    assert first.calls == 1
+    res2 = _results(["3.2.2.1 Seguridad"])
+    second = FakeEngine()
+    stats = ai_filter.judge(res2, second)
+    assert second.calls == 0 and stats["cached"] == 1
+    assert next(f for r in res2 for f in r.findings if f.secret == "3.2.2.1").ai_verdict == "false"
+
+
+def test_triage_uses_bundled_engine_and_skips_hidden():
+    from exhume import ai as ai_mod
+
+    class G:
+        name = "fake"
+        prompt = ""
+
+        def generate(self, system, user, max_tokens=500):
+            G.prompt = user
+            return "## Executive summary\nok"
+
+    res = _results(["3.2.2.1 Seguridad", "servidor 10.1.1.5"])
+    ai_filter.judge(res, FakeEngine())
+    out = ai_mod.triage(res, "http://127.0.0.1:1", "", engine=G())
+    assert out and out["model"] == "fake"
+    assert "10.1.1.5" in G.prompt or "10.1...1.5" in G.prompt or "10.1" in G.prompt
+    assert "3.2.2.1" not in G.prompt          # hidden (AI-false) findings are not triaged

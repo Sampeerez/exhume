@@ -6,7 +6,7 @@ Modular package. Main entry points:
 """
 from __future__ import annotations
 
-__version__ = "7.0.1"
+__version__ = "7.1.0"
 __author__ = "Exhume contributors"
 __license__ = "MIT"
 

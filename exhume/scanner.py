@@ -319,7 +319,7 @@ class Scanner:
         if cfg.ai:
             self._ai_filter(results)
         if cfg.ai and any(r.findings for r in results):
-            res = ai_mod.triage(results, cfg.ai_url, cfg.ai_model)
+            res = ai_mod.triage(results, cfg.ai_url, cfg.ai_model, engine=self._get_engine())
             if res:
                 self.stats.ai_summary = res["summary"]
                 self.stats.ai_model = res["model"]
@@ -435,7 +435,8 @@ class Scanner:
             st = ai_filter.judge(results, engine, cfg.ai_max_calls)
             self.stats.ai_filter = st
             eprint(f"{Colors.GR}AI ({self.stats.ai_engine}): {st['real']} real, {st['false']} false positives "
-                   f"hidden ({st['asked']} model calls, {st['inherited']} inherited"
+                   f"hidden ({st['asked']} model calls, {st['cached']} remembered, "
+                   f"{st['inherited']} inherited"
                    f"{', ' + str(st['skipped']) + ' not judged' if st['skipped'] else ''}).{Colors.END}")
         if has_assets:
             sa = ai_filter.judge_assets(results, engine)

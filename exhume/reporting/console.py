@@ -12,6 +12,18 @@ _SEV_COLOR = {3: C.R, 2: C.Y, 1: C.B}
 _MIN_SEV = {"all": 1, "medium": 1, "high": 2, "critical": 3}
 
 
+def _md(text: str) -> str:
+    """Tiny Markdown-to-ANSI: headings and **bold**, so model output reads cleanly in a terminal."""
+    import re
+    out = []
+    for line in text.strip().splitlines():
+        if line.lstrip().startswith("#"):
+            out.append(f"{C.CY}{C.BOLD}{line.lstrip('# ').strip()}{C.END}")
+        else:
+            out.append(re.sub(r"\*\*(.+?)\*\*", lambda m: f"{C.BOLD}{m.group(1)}{C.END}", line))
+    return "\n".join(out)
+
+
 def _vtag(verified: Verified) -> str:
     if verified is Verified.LIVE:
         return f"{C.G}[✓ LIVE]{C.END} "
@@ -42,9 +54,6 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
     print(line)
     if cfg.verify:
         print(f"{C.G}{C.BOLD}Live credentials verified: {stats.verified_live}{C.END}")
-    if stats.ai_summary:
-        print(f"\n{C.M}{C.BOLD}── AI triage ({stats.ai_model}) ──{C.END}")
-        print(stats.ai_summary.strip())
     print()
 
     findings = sorted((f for r in results for f in r.findings), key=finding_sort_key)
@@ -87,6 +96,10 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
         print(f"\n{C.GR}{len(invalid)} match(es) failed validation or were judged false positives "
               f"(checksum / host check / local AI) and are hidden here; they remain in the HTML (toggle) "
               f"and CSV/JSON exports.{C.END}")
+
+    if stats.ai_summary and not cfg.only_verified:
+        print(f"\n{C.M}{C.BOLD}── AI triage ({stats.ai_model}) ──{C.END}")
+        print(_md(stats.ai_summary))
 
     if cfg.only_verified:
         print()

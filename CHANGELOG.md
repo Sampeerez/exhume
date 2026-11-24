@@ -2,9 +2,13 @@
 
 All notable versions of Exhume.
 
-## [Unreleased]
+## [7.1.0] — 2026-11-24
 
 ### Added
+- AI triage summary now runs on the bundled model too (not only Ollama), is short, never calls a
+  credential "verified" unless it is, and ignores hidden findings. Verdicts are remembered between runs
+  (`~/.cache/exhume/verdicts.json`), so re-auditing a share is much faster.
+- `scripts/make_demo.py` / `make demo`: regenerates `docs/demo.gif` from a real run.
 - `--file-timeout` (default 120 s): a file that takes too long is skipped and reported
   as `skipped (timeout >Ns)` instead of stalling the whole scan.
 
@@ -31,6 +35,8 @@ All notable versions of Exhume.
   `.DS_Store`, `desktop.ini`, `~$*`, ...) are excluded without AI.
 
 ### Changed
+- README rewritten: shorter, with a clear install/run path.
+- Console output prints the AI triage after the findings, as readable text instead of raw Markdown.
 - Fewer false positives in credential detection: placeholders like `[Password]` and binary garbage
   decoded as text are dropped.
 - Sensible defaults, no flags needed: the HTML report opens automatically and a CSV with every
@@ -46,6 +52,8 @@ All notable versions of Exhume.
   and excluded from the cards; console shows only a count. CSV/JSON keep them all.
 
 ### Fixed
+- Docker image build (the AI runtime is installed from a prebuilt wheel, not compiled), badges and
+  project URLs pointed at a placeholder organization, and the exit code no longer counts hidden findings.
 - HTML report rendered blank on very large scans (hundreds of thousands of findings / ~850 MB).
 - CI: pin the runner to `ubuntu-24.04`; `ubuntu-latest` (26.04) no longer ships Python 3.9.
 - Scan hanging near the end on pathological PDF/XLSX files.

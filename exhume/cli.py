@@ -97,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ai = p.add_argument_group("local AI (bundled model, Ollama fallback)")
     ai.add_argument("--no-ai", dest="ai", action="store_false",
-                    help="Disable local-AI triage (on by default if a local model is reachable)")
+                    help="Disable the local AI (match judging, asset filtering and triage summary)")
     ai.add_argument("--ai-model", default="", help="Ollama model to use (default: first available)")
     ai.add_argument("--ai-gguf", default="", help="Use this .gguf model file for the bundled AI")
     ai.add_argument("--ai-max-calls", type=int, default=4000,
@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         label = path.rsplit(".", 1)[-1].upper()
         eprint(f"{Colors.G}{label}:{Colors.END} {path}")
 
-    critical = sum(1 for r in results for f in r.findings if int(f.severity) >= 2)
+    critical = sum(1 for r in results for f in r.findings if int(f.severity) >= 2 and not f.hidden)
     return 1 if critical else 0
 
 

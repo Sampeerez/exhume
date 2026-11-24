@@ -19,6 +19,7 @@ def cfg(tmp_path) -> Config:
         open_report=False,
         want_csv=False,
         verify=False,
+        ai=False,
     )
 
 
@@ -43,3 +44,9 @@ def git_repo(tmp_path):
     run("add", "-A")
     run("commit", "-qm", "borrado")
     return repo
+
+
+@pytest.fixture(autouse=True)
+def _isolated_exhume_home(tmp_path, monkeypatch):
+    """Keep tests away from the real model/verdict cache in ~/.cache/exhume."""
+    monkeypatch.setenv("EXHUME_HOME", str(tmp_path / "exhume_home"))
