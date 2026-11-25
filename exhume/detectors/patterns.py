@@ -139,6 +139,15 @@ DETECTORS: list[Detector] = [
     _d("Spanish DNI/NIF", r"\b\d{8}[ -]?[A-HJ-NP-TV-Z]\b", M, check="dni"),
     _d("Spanish NIE", r"\b[XYZ][ -]?\d{7}[ -]?[A-HJ-NP-TV-Z]\b", M, check="nie"),
     _d("US SSN", r"\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b", M, anchors=("-",)),
+    # Phone numbers: either next to an explicit label (safe even for a bare national number) or an
+    # international +CC number on its own (distinctive enough not to need one).
+    _d("Phone number",
+       r"(?i)(?:tel[ée]fono|tel\.?|m[oó]vil|celular|whatsapp|fax|contacto|phone|mobile|cell|call)"
+       r"\s*(?:n[ºo.]?)?\s*[:.]?\s*(\+?\d[\d\s().-]{6,15}\d)|"
+       r"(\+\d{1,3}[ .-]?\(?\d{2,4}\)?(?:[ .-]?\d{2,4}){2,3})",
+       M, check="phone",
+       anchors=("tel", "tél", "móvil", "movil", "celular", "whatsapp", "fax", "contacto",
+               "phone", "mobile", "cell", "call", "+")),
 
     # --- Network surface (validated: REAL addresses/links, not bare numbers) ---
     _d("Internal/private URL",

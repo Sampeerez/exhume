@@ -135,3 +135,26 @@ def test_ips_are_kept_for_network_verification():
     from exhume.detectors import scan_text
     f = next(x for x in scan_text("3.2.2.1 Seguridad en el almacén", 3.5) if x.detector == "Public IPv4")
     assert f.verifier == "ip"     # verified later against the network, not silently dropped
+
+
+def test_phone_numbers_need_a_label_or_international_format():
+    from exhume.detectors import scan_text
+    names = lambda t: {f.detector for f in scan_text(t, 3.5)}  # noqa: E731
+    assert "Phone number" in names("Móvil de contacto: 612345678")
+    assert "Phone number" in names("Teléfono: +34 912 345 678")
+    assert "Phone number" in names("Llámanos al +1 (555) 123-4567")
+    assert "Phone number" not in names("ID de sesión 123456789 expira en 10 min")  # no label, no +CC
+
+
+def test_phone_check_rejects_dates_and_repeated_digits():
+    assert _status("Móvil: 612345678", "Phone number") == "valid"
+    assert _status("Móvil: 000000000", "Phone number") == "invalid"
+    assert _status("Fecha pedido: 20240115 ref", "Phone number") is None  # loose digits, no match at all
+
+
+def test_garbage_line_is_skipped_entirely():
+    from exhume.detectors import scan_text
+    garbled = "H,�/�@�8::�_���"
+    assert scan_text(garbled, 3.5) == []
+    # A clean line with the exact same value is still caught normally.
+    assert any(f.detector == "IPv6 address" for f in scan_text("interfaz eth0 inet6 8::1/64", 3.5))

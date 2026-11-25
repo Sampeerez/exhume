@@ -85,6 +85,20 @@ def _is_junk(value: str) -> bool:
     return False
 
 
+def _is_garbage_line(line: str) -> bool:
+    """A whole line that is binary data misread as text (common when a UTF-16/wide-char binary,
+    e.g. a .dwg/.msi/.exe, gets strings-extracted and a run of unrelated bytes decodes as mangled
+    Unicode). Every detector is skipped on it \u2014 a loose pattern like IPv6's can coincidentally
+    match garbage (``8::`` is syntactically valid IPv6), and no detector's output on such a line
+    means anything. Checked once per line rather than per detector/value: cheaper, and it also
+    protects detectors (IPv6, IPv4, DNI/NIE...) that don't otherwise get this check at all.
+    """
+    if not line:
+        return False
+    bad = sum(1 for c in line if c == "\ufffd" or (ord(c) < 32 and c != "\t"))
+    return bad / len(line) > 0.03
+
+
 def _redact(value: str, keep: int = 4) -> str:
     value = value.strip()
     if len(value) <= keep * 2:
@@ -143,6 +157,8 @@ def scan_text(
         lineno = idx + 1
         line = raw_line[:_MAX_LINE] if len(raw_line) > _MAX_LINE else raw_line
         if allow is not None and allow.search(line):
+            continue
+        if _is_garbage_line(line):
             continue
         lower = line.lower()
 

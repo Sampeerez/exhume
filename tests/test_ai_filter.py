@@ -176,3 +176,11 @@ def test_marked_block_declutters_every_line():
     assert "10-03-2024" not in block
     assert ">>> IP Address: 10.128.18.102" in block
     assert "Computer: SCRUZ-L-344" in block and "Domain: disagrupo.es" in block
+
+
+def test_ipv6_and_phone_are_judged():
+    from exhume.detectors import scan_text
+    f_ip6 = next(f for f in scan_text("interfaz eth0 inet6 8::1/64", 3.5) if f.detector == "IPv6 address")
+    assert ai_filter._is_judged(f_ip6)
+    f_phone = next(f for f in scan_text("Móvil: 612345678", 3.5) if f.detector == "Phone number")
+    assert ai_filter._is_judged(f_phone)

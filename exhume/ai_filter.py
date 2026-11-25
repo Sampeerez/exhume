@@ -36,17 +36,20 @@ MODEL_URL = ("https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/
              "qwen2.5-3b-instruct-q4_k_m.gguf")
 MODEL_FILE = "qwen2.5-3b-instruct-q4_k_m.gguf"
 MODEL_MIN_BYTES = 2_000_000_000
-FALSE_THRESHOLD = 0.70   # confidence needed before a match is hidden as a false positive
+FALSE_THRESHOLD = 0.85   # confidence needed before a match is hidden as a false positive — every
+# verified-correct FALSE case in testing scores 0.999+, so this is set well below that margin; a
+# borderline, genuinely uncertain case now defaults to shown (unhidden) rather than hidden, in
+# line with "dropping a real finding is worse than keeping a noisy one" (see LlamaEngine.ask).
 # Bumped whenever the judging prompt/shots/context strategy changes materially: it's baked into
 # the verdict cache key, so an improvement (or a fix to a bad verdict) takes effect immediately
 # instead of being masked by a stale cached answer from the old prompt.
-PROMPT_VERSION = 3
+PROMPT_VERSION = 4
 
 # Detectors whose matches are ambiguous without context. Provider-specific tokens
 # (AWS, GitHub, ...) and live-verified credentials are never second-guessed.
 JUDGED = {
-    "Public IPv4", "Private IP (RFC1918)", "Credit card", "IBAN",
-    "Spanish DNI/NIF", "Spanish NIE", "US SSN",
+    "Public IPv4", "Private IP (RFC1918)", "IPv6 address", "Credit card", "IBAN",
+    "Spanish DNI/NIF", "Spanish NIE", "US SSN", "Phone number",
     "Credential assignment", "Credential in XML/property",
 }
 _JUDGED_PREFIX = ("High-entropy string",)
@@ -54,11 +57,13 @@ _JUDGED_PREFIX = ("High-entropy string",)
 _GUIDE = {
     "Public IPv4": "a network IP address of a host, server, router or device",
     "Private IP (RFC1918)": "a network IP address of a host, server, router or device",
+    "IPv6 address": "a network IPv6 address of a host, server, router or device",
     "Credit card": "a payment card number (PAN)",
     "IBAN": "a bank account number (IBAN)",
     "Spanish DNI/NIF": "the national ID number of a person",
     "Spanish NIE": "the foreigner ID number of a person",
     "US SSN": "a US social security number",
+    "Phone number": "a real phone number belonging to a person or organization",
     "Credential assignment": "an actual password / secret value that someone set",
     "Credential in XML/property": "an actual password / secret value that someone set",
     "secret": "a real secret key or token",
@@ -80,7 +85,9 @@ _SHOTS = {
     "ip": [("10.158.14.103", "servidor sql 10.158.14.103 puerto 1433", "REAL"),
            ("3.2.2.1", "3.2.2.1 Seguridad en el almacén", "FALSE"),
            ("192.168.1.10", "ssh admin@192.168.1.10", "REAL"),
-           ("2.7.5.4", "Versión del firmware 2.7.5.4 instalada", "FALSE")],
+           ("2.7.5.4", "Versión del firmware 2.7.5.4 instalada", "FALSE"),
+           ("2001:db8::1", "interfaz eth0 inet6 2001:db8::1/64 scope global", "REAL"),
+           ("8::", "H,@/@q@8::@_@@@ (datos binarios sin sentido)", "FALSE")],
     "card": [("4539148803436467", "Tarjeta Visa 4539 1488 0343 6467 caduca 12/27", "REAL"),
              ("412499999999994", "TOTAL 62.412499999999994", "FALSE"),
              ("537499999999994", "PRECIO STOCK 537499999999994", "FALSE"),
@@ -99,6 +106,10 @@ _SHOTS = {
              ("password", "Introduzca su password para continuar", "FALSE")],
     "secret": [("kJ8sd9Fh2Lq0Zx7Vb3Nm1Pw5Rt6Yu4", "api_key=kJ8sd9Fh2Lq0Zx7Vb3Nm1Pw5Rt6Yu4", "REAL"),
                ("3f7a9c1d5e8b2f4a6c0d9e1b7a3f5c82", "sha256 checksum 3f7a9c1d5e8b2f4a6c0d9e1b7a3f5c82", "FALSE")],
+    "phone": [("612345678", "Móvil de contacto: 612345678", "REAL"),
+              ("912345678", "Teléfono: +34 912 345 678 (atención al cliente)", "REAL"),
+              ("20240115", "Fecha pedido 20240115 referencia interna", "FALSE"),
+              ("123456789", "ID de sesión 123456789 expira en 10 min", "FALSE")],
 }
 _DIGITS = re.compile(r"\d+")
 _PROMPT_CTX_CAP = 1200
@@ -364,7 +375,7 @@ def load_engine(autoinstall: bool = True, gguf: str = "", ollama_url: str = "",
 
 def _kind(f: Finding) -> str:
     d = f.detector
-    if "IPv4" in d or "IP (" in d:
+    if "IPv4" in d or "IP (" in d or d == "IPv6 address":
         return "ip"
     if d == "Credit card":
         return "card"
@@ -372,6 +383,8 @@ def _kind(f: Finding) -> str:
         return "iban"
     if d.startswith(("Spanish", "US SSN")):
         return "id"
+    if d == "Phone number":
+        return "phone"
     if d.startswith("High-entropy"):
         return "secret"
     return "cred"

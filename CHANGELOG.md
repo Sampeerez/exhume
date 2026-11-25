@@ -4,6 +4,29 @@ All notable versions of Exhume.
 
 ## [Unreleased]
 
+### Added
+- **Phone number detector**: a labelled national number (`Teléfono:`, `Móvil:`, `Fax:`, …) or a
+  standalone international `+CC …` number, checked offline (digit count, not a repeated-digit
+  pattern, not a calendar date mistaken for a number) and, when ambiguous, judged in context by
+  the local AI like every other PII detector.
+
+### Fixed
+- **Garbage binary data was still matched by detectors that have no entropy/junk check of their
+  own** (IPv6 in particular: `8::` is syntactically valid IPv6, and random bytes misread as UTF-16
+  text produce exactly that kind of short, garbage match). A whole line is now skipped by every
+  detector, not just entropy-based ones, when it's mostly replacement characters/control bytes —
+  the same class of bug the earlier `_is_junk` fix addressed, generalized to the whole line instead
+  of only the matched value, and IPv6 (and the new phone detector) now also get an AI second look
+  for anything that gets through anyway.
+- **Report filters now stay internally consistent.** The detector dropdown used to list every
+  detector type regardless of which severity tab was active or whether "Hide invalid" was on,
+  so picking "Public IPv4" while on the Medium tab, or a detector whose only matches were hidden
+  as invalid, could show a count and then zero rows. It's now rebuilt from the currently visible
+  findings on every filter change, so it only ever offers what's actually there.
+- `FALSE_THRESHOLD` raised from 0.70 to 0.85: every verified-correct false-positive call in testing
+  scored 0.999+, so there was no reason to hide a borderline, genuinely uncertain match — it now
+  defaults to shown.
+
 ### Fixed (AI judging accuracy)
 Found and fixed three real false-verdict causes by reproducing an actual scan result end to end,
 then re-validated with a 16-case regression battery covering every detector the AI judges (all pass):
@@ -31,6 +54,10 @@ then re-validated with a 16-case regression battery covering every detector the 
   was actually verified (e.g. `--verify` was off). Whether a real LIVE finding exists is known
   exactly, so `ai._verified_live_guard` strips every "VERIFIED-LIVE" claim from the output when there
   is none, the same way `_no_findings_guard` already handled invented findings.
+
+### Changed
+- README rewritten: shorter, bullet-driven, secondary detail moved into collapsible sections —
+  aimed at being readable in one scroll instead of explaining every internal design decision.
 
 ### Security
 - **The "local AI never sends data anywhere" claim is now an enforced check, not just a promise.**

@@ -170,7 +170,7 @@ footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
    <button data-sev="2" onclick="setSev('2')">High</button>
    <button data-sev="1" onclick="setSev('1')">Medium</button>
   </div>
-  <select id="detsel" onchange="render()"><option value="">All detectors</option>__DETOPTS__</select>
+  <select id="detsel" onchange="render()"><option value="">All detectors</option></select>
   <label class="tog"><input type="checkbox" id="liveonly" onchange="render()"> Verified only</label>
   <label class="tog"><input type="checkbox" id="expall" onchange="toggleAll(this.checked)"> Expand all</label>
  <label class="tog"><input type="checkbox" id="hideinv" checked onchange="render();renderExtra()" title="Hide matches that failed their check (bad checksum, IP with no host) or that the local AI judged a false positive"> Hide invalid / AI false positives</label>
@@ -244,9 +244,11 @@ function setSev(s){fSev=s;
  document.querySelectorAll('#cards .card').forEach(c=>c.classList.toggle('sel',c.dataset.sev===s&&s!=='all'));
  render();}
 document.querySelectorAll('#cards .card').forEach(c=>c.addEventListener('click',()=>setSev(c.dataset.sev)));
-function match(f){
- const q=document.getElementById('q').value.toLowerCase();
- const det=document.getElementById('detsel').value;
+function matchBase(f){
+ // Every filter EXCEPT the detector dropdown and the free-text search — this is also what decides
+ // which detectors are worth offering in the dropdown at all, so "Medium" never lists a detector
+ // that has no Medium findings, and a detector hidden entirely behind "Hide invalid" doesn't show
+ // up with a count that then shows zero rows when picked.
  const liveonly=document.getElementById('liveonly').checked;
  const showdis=document.getElementById('showdis').checked&&!REPORT;
  if(!showdis && DIS.has(f.fingerprint)) return false;
@@ -254,10 +256,26 @@ function match(f){
  if(fSev==='live'){ if(f.verified!=='live') return false; }
  else if(fSev!=='all'){ if(String(f.severity)!==fSev) return false; }
  if(liveonly && f.verified!=='live') return false;
+ return true;
+}
+function match(f){
+ if(!matchBase(f)) return false;
+ const det=document.getElementById('detsel').value;
  if(det && f.detector!==det) return false;
+ const q=document.getElementById('q').value.toLowerCase();
  if(q){ const hay=f._h||(f._h=(f.detector+' '+f.path+' '+f.value+' '+f.context+' '+(f.detail||'')).toLowerCase());
         if(!hay.includes(q)) return false; }
  return true;
+}
+function rebuildDetectorOptions(){
+ const sel=document.getElementById('detsel');
+ const prev=sel.value;
+ const counts={};
+ DATA.findings.forEach(f=>{ if(matchBase(f)) counts[f.detector]=(counts[f.detector]||0)+1; });
+ const entries=Object.entries(counts).sort((a,b)=>b[1]-a[1]||(a[0]<b[0]?-1:1));
+ sel.innerHTML='<option value="">All detectors</option>'+entries.map(([d,c])=>
+  '<option value="'+esc(d)+'">'+esc(d)+' ('+c.toLocaleString()+')</option>').join('');
+ sel.value=(prev && counts[prev]) ? prev : '';
 }
 function locsHTML(f){
  const locs=f.locations||[{path:f.path,line:f.line,col:f.col}];
@@ -320,6 +338,7 @@ function rowFor(f,i){
 }
 function render(resetPage){
  if(resetPage!==false) page=0;
+ rebuildDetectorOptions();
  view=[]; DATA.findings.forEach((f,i)=>{ if(match(f)) view.push(i); });
  const pages=Math.max(1,Math.ceil(view.length/PAGE));
  if(page>=pages) page=pages-1;
@@ -471,11 +490,6 @@ render(); renderExtra();
 </script></body></html>"""
 
 
-def _severity_options(by_type: dict) -> str:
-    return "".join(f"<option value=\"{d}\">{d} ({c})</option>"
-                   for d, c in sorted(by_type.items(), key=lambda x: -x[1]))
-
-
 def _md_to_html(text: str) -> str:
     """Minimal, safe Markdown-ish rendering (headings, lists, paragraphs)."""
     import html as _h
@@ -615,7 +629,6 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
            .replace("__LIVE__", str(rs["verified_live"])).replace("__TOTAL__", str(shown_total))
            .replace("__BAR__", bar)
            .replace("__AISECTION__", _ai_section(m))
-           .replace("__DETOPTS__", _severity_options(rs["by_type"]))
            .replace("__VERSION__", str(m["version"]))
            .replace("__TRUNCNOTE__", trunc)
            .replace("__DATA__", data))

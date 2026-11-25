@@ -11,6 +11,7 @@ to be serialized across processes.
 from __future__ import annotations
 
 import ipaddress
+import re
 from urllib.parse import urlparse
 
 from .entropy import luhn_valid
@@ -150,7 +151,23 @@ def check_nie(value: str) -> tuple[bool, str]:
 
 
 # Offline "is it real?" checks: name -> fn(value) -> (ok, detail)
-CHECKS = {"iban": check_iban, "card": check_card, "dni": check_dni, "nie": check_nie}
+def check_phone(value: str) -> tuple[bool, str]:
+    """Plausible phone number: right digit count, not all the same digit, not a calendar date
+    (a date like 20240115 matches the loose "digits next to a label" shape too easily)."""
+    digits = re.sub(r"\D", "", value)
+    if not (7 <= len(digits) <= 15):
+        return False, "wrong digit count for a phone number"
+    if len(set(digits)) <= 2:
+        return False, "repeated-digit pattern, not a real number"
+    if len(digits) == 8:
+        year, month, day = digits[:4], digits[4:6], digits[6:8]
+        if 1900 <= int(year) <= 2099 and 1 <= int(month) <= 12 and 1 <= int(day) <= 31:
+            return False, "looks like a calendar date (YYYYMMDD)"
+    return True, "plausible phone number"
+
+
+CHECKS = {"iban": check_iban, "card": check_card, "dni": check_dni, "nie": check_nie,
+         "phone": check_phone}
 
 VALIDATORS = {
     "iban": is_iban,
