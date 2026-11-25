@@ -175,6 +175,19 @@ def _no_findings_guard(text: str, results: list[FileResult]) -> str:
                  r"\1No credential findings.\n", text)
 
 
+def _verified_live_guard(text: str, results: list[FileResult]) -> str:
+    """The model is instructed to call something "VERIFIED-LIVE" only when the input actually
+    tagged it that way, but a small model sometimes uses the phrase anyway — e.g. because
+    --verify was off, so nothing was ever checked, yet it still writes "VERIFIED-LIVE
+    credential". Whether a real LIVE finding exists is known exactly; when there is none, strip
+    every claim of one rather than let an unverified finding be reported as confirmed."""
+    has_live = any(f.verified is Verified.LIVE and not f.hidden for r in results for f in r.findings)
+    if has_live:
+        return text
+    import re
+    return re.sub(r"(?i)\bVERIFIED[\s-]*LIVE\b", "UNVERIFIED", text)
+
+
 def triage(results: list[FileResult], ai_url: str, model: str = "", engine=None) -> dict | None:
     """Run local triage. Returns {'model','summary'} or None if unavailable.
 
@@ -187,7 +200,8 @@ def triage(results: list[FileResult], ai_url: str, model: str = "", engine=None)
         except Exception:
             text = ""
         if text:
-            return {"model": getattr(engine, "name", "local AI"), "summary": _no_findings_guard(text, results)}
+            text = _verified_live_guard(_no_findings_guard(text, results), results)
+            return {"model": getattr(engine, "name", "local AI"), "summary": text}
     models = available(ai_url)
     if not models:
         return None
@@ -204,4 +218,6 @@ def triage(results: list[FileResult], ai_url: str, model: str = "", engine=None)
         text = json.loads(raw).get("response", "").strip()
     except Exception:
         return None
-    return {"model": chosen, "summary": _no_findings_guard(text, results)} if text else None
+    if not text:
+        return None
+    return {"model": chosen, "summary": _verified_live_guard(_no_findings_guard(text, results), results)}

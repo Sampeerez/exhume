@@ -4,6 +4,34 @@ All notable versions of Exhume.
 
 ## [Unreleased]
 
+### Fixed (AI judging accuracy)
+Found and fixed three real false-verdict causes by reproducing an actual scan result end to end,
+then re-validated with a 16-case regression battery covering every detector the AI judges (all pass):
+- **The judge only ever saw the match's own line**, which for a bare value with nothing else on it
+  (a lone `4.1.9.3` from a reversed-text PDF extraction glitch, sitting between unrelated lines) gave
+  the model no signal at all — it defaulted to REAL (measured confidence: 2% false). It's now shown
+  the surrounding block (already collected for the HTML context view) instead of just its own line.
+- That fix alone introduced a new mistake: with several lines in view, the model could anchor on a
+  *different* nearby number (an invoice's decimal `TOTAL` two lines above a genuine `Tarjeta Visa
+  ... CVV` line) and misjudge the real card as the fake one. Fixed by marking exactly which line
+  the value came from (`>>> `) — validated to resolve both problems together, including when the
+  flagged value happens to coincide with one of the model's own few-shot examples.
+- **Per-line log boilerplate (timestamps, `[LEVEL]` tags) derailed the judgment of otherwise
+  unambiguous matches.** An identical `IP Address: 10.128.18.102` line was judged correctly real
+  with no prefix, but a false positive once given its real-world `10-03-2024 09:44:22.518 [X]`
+  timestamp prefix — purely from that clutter, the exact semantic content unchanged. Common
+  timestamp/log-tag prefixes are now stripped from what the AI sees (`ai_filter._declutter`); the
+  context stored in the report is never touched, only the model's copy of it.
+- The verdict cache (`~/.cache/exhume/verdicts.json`) now carries a `PROMPT_VERSION`: a judging-logic
+  fix like the ones above now takes effect immediately instead of being masked by a stale cached
+  answer from before the fix. Also fixed the cache key itself to hash the full context block (what
+  the model is actually shown) rather than just the match's own line, so two identical bare values
+  in different surrounding context no longer share a cached verdict.
+- The triage summary sometimes labeled a finding "VERIFIED-LIVE" in its own prose even when nothing
+  was actually verified (e.g. `--verify` was off). Whether a real LIVE finding exists is known
+  exactly, so `ai._verified_live_guard` strips every "VERIFIED-LIVE" claim from the output when there
+  is none, the same way `_no_findings_guard` already handled invented findings.
+
 ### Security
 - **The "local AI never sends data anywhere" claim is now an enforced check, not just a promise.**
   Audited every network call the AI code can make and found two real gaps, both fixed:

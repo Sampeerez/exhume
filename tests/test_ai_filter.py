@@ -1,6 +1,6 @@
 from exhume import ai_filter
 from exhume.detectors import scan_text
-from exhume.models import FileResult, Verified
+from exhume.models import FileResult, Finding, Severity, Verified
 
 
 class FakeEngine:
@@ -124,3 +124,55 @@ def test_ollama_engine_refuses_non_local_url():
 def test_ollama_engine_accepts_loopback_url():
     eng = ai_filter.OllamaEngine("http://127.0.0.1:11434", "llama3")
     assert eng.url == "http://127.0.0.1:11434"
+
+
+def test_prompt_uses_full_surrounding_block_not_just_the_match_line():
+    """A bare value alone on its line (e.g. a lone "4.1.9.3") gives the model nothing to judge —
+    it needs the lines around it to tell a real IP from a reversed-PDF section number sitting in
+    the middle of unrelated prose."""
+    from exhume.detectors import scan_text
+    text = "Página 13 de 13\nIntroducción\n4.1.9.3\nLongitud en metros\nde baja tensión."
+    f = next(x for x in scan_text(text, 3.5) if x.detector == "Public IPv4")
+    prompt = ai_filter._prompt(f)
+    assert "Página 13 de 13" in prompt
+    assert "Longitud en metros" in prompt
+    assert "4.1.9.3" in prompt
+
+
+def test_verdict_cache_key_depends_on_full_block_not_just_own_line():
+    """Same bare value, same own line, DIFFERENT surrounding context -> different cache entries."""
+    from exhume.detectors import scan_text
+    real = next(x for x in scan_text("servidor\n4.1.9.3\npuerto 1433 abierto", 3.5)
+               if x.detector == "Public IPv4")
+    fake = next(x for x in scan_text("manual del producto\n4.1.9.3\nsección siguiente", 3.5)
+               if x.detector == "Public IPv4")
+    cache = ai_filter.VerdictCache("fake-model")
+    assert cache.key(real) != cache.key(fake)
+
+
+def test_declutter_strips_log_timestamps_but_keeps_content():
+    line = "10-03-2024 09:44:22.518 [X]    IP Address: 10.128.18.102"
+    assert ai_filter._declutter(line) == "IP Address: 10.128.18.102"
+    iso = "2024-10-03T09:44:22.515Z [INFO] Entry EXE: Agent.exe"
+    assert ai_filter._declutter(iso) == "Entry EXE: Agent.exe"
+    plain = "password=hunter2hunter2!!"
+    assert ai_filter._declutter(plain) == plain  # nothing to strip, unchanged
+
+
+def test_declutter_never_returns_empty_for_a_timestamp_only_line():
+    only_ts = "10-03-2024 09:44:22.515 [X]"
+    assert ai_filter._declutter(only_ts).strip()
+
+
+def test_marked_block_declutters_every_line():
+    f = Finding(detector="Private IP (RFC1918)", severity=Severity.MEDIUM, line=2,
+                redacted="1***", context="IP Address: 10.128.18.102", secret="10.128.18.102",
+                context_block=[
+                    [1, "10-03-2024 09:44:22.516 [X]    Computer: SCRUZ-L-344"],
+                    [2, "10-03-2024 09:44:22.518 [X]    IP Address: 10.128.18.102"],
+                    [3, "10-03-2024 09:44:22.519 [X]    Domain: disagrupo.es"],
+                ])
+    block = ai_filter._marked_block(f)
+    assert "10-03-2024" not in block
+    assert ">>> IP Address: 10.128.18.102" in block
+    assert "Computer: SCRUZ-L-344" in block and "Domain: disagrupo.es" in block

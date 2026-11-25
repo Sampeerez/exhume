@@ -175,3 +175,22 @@ def test_triage_refuses_non_local_ollama_url(monkeypatch):
     monkeypatch.setattr(ai, "_get", boom)
     monkeypatch.setattr(ai, "_post", boom)
     assert ai.triage(_results(), "http://attacker.example.com:11434", "") is None
+
+
+def test_verified_live_guard_strips_false_claim_when_nothing_is_live():
+    f = Finding(detector="AWS Access Key ID", severity=Severity.CRITICAL, line=1,
+                redacted="AKIA...MPLE", context="x", path="a.env", secret="AKIAIOSFODNN7EXAMPLE")
+    results = [FileResult(path="a.env", name="a.env", ext=".env", size=10, findings=[f])]
+    text = "- [VERIFIED-LIVE] AWS Access Key ID in a.env\n- Verified-live credential found elsewhere"
+    fixed = ai._verified_live_guard(text, results)
+    assert "VERIFIED-LIVE" not in fixed.upper().replace("UNVERIFIED", "")
+    assert fixed.count("UNVERIFIED") == 2
+
+
+def test_verified_live_guard_leaves_text_alone_when_something_is_actually_live():
+    f = Finding(detector="AWS Access Key ID", severity=Severity.CRITICAL, line=1,
+                redacted="AKIA...MPLE", context="x", path="a.env", secret="AKIAIOSFODNN7EXAMPLE",
+                verified=Verified.LIVE)
+    results = [FileResult(path="a.env", name="a.env", ext=".env", size=10, findings=[f])]
+    text = "- [VERIFIED-LIVE] AWS Access Key ID in a.env"
+    assert ai._verified_live_guard(text, results) == text

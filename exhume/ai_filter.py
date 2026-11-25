@@ -37,6 +37,10 @@ MODEL_URL = ("https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/
 MODEL_FILE = "qwen2.5-3b-instruct-q4_k_m.gguf"
 MODEL_MIN_BYTES = 2_000_000_000
 FALSE_THRESHOLD = 0.70   # confidence needed before a match is hidden as a false positive
+# Bumped whenever the judging prompt/shots/context strategy changes materially: it's baked into
+# the verdict cache key, so an improvement (or a fix to a bad verdict) takes effect immediately
+# instead of being masked by a stale cached answer from the old prompt.
+PROMPT_VERSION = 3
 
 # Detectors whose matches are ambiguous without context. Provider-specific tokens
 # (AWS, GitHub, ...) and live-verified credentials are never second-guessed.
@@ -68,6 +72,8 @@ _SYSTEM = (
 
 _Q = ("Value: {v}\nText around it:\n---\n{c}\n---\n"
       "Is the value genuinely the claimed data (REAL) or a false positive (FALSE)?")
+_Q_MARKED = ("Value: {v}\nText around it (the line marked >>> is where the value was found):\n---\n{c}\n---\n"
+            "Is the value genuinely the claimed data (REAL) or a false positive (FALSE)?")
 
 # (value, surrounding text, answer) examples shown to the model before the real question
 _SHOTS = {
@@ -95,7 +101,7 @@ _SHOTS = {
                ("3f7a9c1d5e8b2f4a6c0d9e1b7a3f5c82", "sha256 checksum 3f7a9c1d5e8b2f4a6c0d9e1b7a3f5c82", "FALSE")],
 }
 _DIGITS = re.compile(r"\d+")
-_PROMPT_CTX_CAP = 700
+_PROMPT_CTX_CAP = 1200
 _SAMPLE_BEFORE_PROPAGATE = 3
 _GROUP_FULL_LIMIT = 5      # groups up to this size are always judged item by item
 _GROUP_HARD_CAP = 40       # max items judged per (file, detector) group
@@ -125,8 +131,11 @@ class VerdictCache:
             self.data = {}
 
     def key(self, f: Finding) -> str:
-        own = next((t for n, t in (f.context_block or []) if n == f.line), f.context or "")
-        raw = f"{self.model}|{_kind(f)}|{f.secret}|{own[:300]}"
+        # Keyed on the same text the model is actually shown (the whole block, not just the
+        # match's own line) — two identical bare values with different surrounding context are
+        # different questions and must not share a cached answer.
+        block = "\n".join(t for _, t in (f.context_block or [])) or f.context or ""
+        raw = f"v{PROMPT_VERSION}|{self.model}|{_kind(f)}|{f.secret}|{block[:400]}"
         return hashlib.sha1(raw.encode("utf-8", "replace")).hexdigest()
 
     def get(self, f: Finding) -> str | None:
@@ -379,15 +388,56 @@ def _claim(f: Finding) -> str:
 
 
 def _shots(f: Finding) -> tuple:
+    # Shot examples stay single-line/unmarked — they're already unambiguous by construction (the
+    # whole point is the model learns the REAL/FALSE pattern from them), and marking a short shot
+    # line identically to how the real multi-line question is marked makes one of them (the
+    # "looks like a section number" example) a near-exact duplicate of a real-world case that uses
+    # the same wording, which measurably confused the model in testing. The real question's own
+    # marking (see _marked_block) is what matters for the cases that actually need it.
     claim = _claim(f)
     return tuple((f"The scanner flagged this value as {claim}.\n" + _Q.format(v=v, c=c), ans)
                  for v, c, ans in _SHOTS[_kind(f)])
 
 
+# Common log-line boilerplate (timestamps, "[LEVEL]" tags) that carries no judging signal but,
+# left in, measurably distracts the model — a real "IP Address: 10.128.18.102" line in a timestamped
+# log was judged false positive purely because of the "10-03-2024 09:44:22.518 [X]" clutter in front
+# of it; stripped, the identical line is judged correctly. This only affects what the AI sees, never
+# the context stored in the report.
+_LOG_PREFIX = re.compile(
+    r"^\s*(?:\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?|"
+    r"\d{1,2}[-/]\d{1,2}[-/]\d{2,4}[ T]\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?)\s*"
+    r"(?:\[[^\]\n]{0,24}\])?\s*(?:\[[^\]\n]{0,24}\])?\s*"
+)
+
+
+def _declutter(line: str) -> str:
+    cleaned = _LOG_PREFIX.sub("", line)
+    return cleaned if cleaned.strip() else line
+
+
+def _marked_block(f: Finding) -> str:
+    """The surrounding lines (already collected for the HTML context view) with the matched line
+    itself marked ">>> ". Two things that otherwise pull against each other both need this:
+
+    - The match's own line is sometimes just the bare value with nothing else on it (a lone
+      "4.1.9.3"); with no other signal the model has nothing to judge and defaults to REAL. The
+      surrounding lines give it the one thing that actually settles these — does the text read
+      like network/financial documentation, or like a manual, a table, unrelated prose?
+    - But showing several lines at once risks the model anchoring on a DIFFERENT, nearby number
+      (e.g. an invoice's fake-looking TOTAL two lines above a genuine "Tarjeta Visa ... CVV" line)
+      and judging the wrong one. Marking exactly which line the value came from fixes that without
+      giving up the surrounding context — tested to correctly separate both cases at once.
+    """
+    block = f.context_block or []
+    if not block:
+        return _declutter(f.context) if f.context else ""
+    return "\n".join((">>> " if n == f.line else "    ") + _declutter(t) for n, t in block)
+
+
 def _prompt(f: Finding) -> str:
-    own = next((t for n, t in (f.context_block or []) if n == f.line), None)
-    lines = (own if own is not None else f.context or "")[:_PROMPT_CTX_CAP]
-    return f"The scanner flagged this value as {_claim(f)}.\n" + _Q.format(v=f.secret or f.redacted, c=lines)
+    lines = _marked_block(f)[:_PROMPT_CTX_CAP]
+    return f"The scanner flagged this value as {_claim(f)}.\n" + _Q_MARKED.format(v=f.secret or f.redacted, c=lines)
 
 
 def _parse(answer: str) -> str | None:
