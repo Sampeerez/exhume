@@ -520,6 +520,48 @@ def _asset_prompt(r: FileResult, tag: str) -> str:
     return meta + "Worth an auditor's attention (REAL) or noise (FALSE)?"
 
 
+_INSIGHT_SYSTEM = (
+    "You are a senior auditor summarizing a database found during an authorized security audit. "
+    "In one short sentence (under 20 words), say what kind of real-world data the table likely holds "
+    "and why it matters (e.g. \"customer records with plaintext passwords and emails — high "
+    "impersonation risk\"). Be concrete, not generic. No preamble, no quotes, one sentence only."
+)
+_MAX_INSIGHT_DBS = 40
+
+
+def _insight_prompt(r: FileResult) -> str:
+    di = r.db_info or {}
+    lines = [f"Database: {r.name}"]
+    for t in di.get("tables", [])[:8]:
+        cols = ", ".join(t.get("columns") or [])
+        lines.append(f"- table {t['name']} ({t.get('rows')} rows): {cols}")
+    sc = di.get("sensitive_columns") or []
+    if sc:
+        lines.append("Columns that look sensitive: " + ", ".join(sc[:10]))
+    lines.append("One-sentence summary of what this data is and why it matters:")
+    return "\n".join(lines)
+
+
+def judge_db_insights(results: list[FileResult], engine, max_calls: int = _MAX_INSIGHT_DBS) -> int:
+    """Ask the local AI what a sensitive database actually CONTAINS, for the report and the triage.
+
+    Bounded and best-effort: skipped files just keep no ``ai_insight``. Only databases with at
+    least one sensitive-looking column are worth the call (plain lookup tables are not).
+    """
+    targets = [r for r in results if "database" in r.tags and r.ai_verdict != "false"
+              and (r.db_info or {}).get("sensitive_columns") and not (r.db_info or {}).get("ai_insight")]
+    asked = 0
+    for r in targets[:max_calls]:
+        try:
+            text = engine.generate(_INSIGHT_SYSTEM, _insight_prompt(r), max_tokens=60).strip()
+        except Exception:
+            continue
+        asked += 1
+        if text:
+            r.db_info["ai_insight"] = text.strip(' "\n')[:220]
+    return asked
+
+
 def judge_assets(results: list[FileResult], engine, max_calls: int = 1500) -> dict:
     """Mark database/config assets the AI considers noise. One call per distinct (name, type)."""
     stats = {"asked": 0, "real": 0, "false": 0, "skipped": 0}

@@ -10,7 +10,16 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 from .. import __version__
-from ..models import FileResult, Finding, ScanStats, Severity, finding_sort_key
+from ..models import (
+    FileResult,
+    FindingGroup,
+    ScanStats,
+    Severity,
+    Verified,
+    finding_sort_key,
+    group_findings,
+    group_sort_key,
+)
 
 
 def human_size(n: float) -> str:
@@ -28,7 +37,11 @@ def _mask_text(text: str, pairs: list[tuple[str, str]]) -> str:
     return text
 
 
-def _finding_dict(f: Finding, mask: bool, line_pairs: list[tuple[str, str]]) -> dict:
+_MAX_LOCATIONS = 500  # locations listed per group in the report (the count itself is never capped)
+
+
+def _finding_dict(g: FindingGroup, mask: bool, line_pairs: list[tuple[str, str]]) -> dict:
+    f = g.rep
     if mask:
         value = f.redacted
         context = _mask_text(f.context, line_pairs)
@@ -37,6 +50,7 @@ def _finding_dict(f: Finding, mask: bool, line_pairs: list[tuple[str, str]]) -> 
         value = f.secret if f.secret is not None else f.redacted
         context = f.context
         block = [[n, t] for n, t in f.context_block]
+    locs = g.locations[:_MAX_LOCATIONS]
     return {
         "detector": f.detector,
         "severity": int(f.severity),
@@ -53,21 +67,27 @@ def _finding_dict(f: Finding, mask: bool, line_pairs: list[tuple[str, str]]) -> 
         "ai": f.ai_verdict,
         "ai_note": f.ai_note,
         "detail": f.detail,
-        "fingerprint": f.fingerprint(),
+        "fingerprint": g.fingerprint,
+        "occurrences": g.count,
+        "locations": [{"path": p, "line": ln, "col": c} for p, ln, c in locs],
+        "locations_truncated": max(0, g.count - len(locs)),
     }
 
 
 def build_payload(results: list[FileResult], stats: ScanStats, mask: bool = False) -> dict:
     findings = sorted((f for r in results for f in r.findings), key=finding_sort_key)
+    # The same value (a password, an email, a key...) is reported ONCE, with every location
+    # it was found in, instead of once per occurrence.
+    groups = sorted(group_findings(findings), key=group_sort_key)
 
     # Pairs per (path, line-vicinity) for masking the surrounding context blocks.
     pairs_by_path: dict[str, list[tuple[str, str]]] = defaultdict(list)
     if mask:
-        for f in findings:
-            if f.secret:
-                pairs_by_path[f.path].append((f.secret, f.redacted))
+        for g in groups:
+            if g.rep.secret:
+                pairs_by_path[g.rep.path].append((g.rep.secret, g.rep.redacted))
 
-    public = [_finding_dict(f, mask, pairs_by_path.get(f.path, [])) for f in findings]
+    public = [_finding_dict(g, mask, pairs_by_path.get(g.rep.path, [])) for g in groups]
 
     assets: dict[str, list] = defaultdict(list)
     for r in results:
@@ -96,17 +116,18 @@ def build_payload(results: list[FileResult], stats: ScanStats, mask: bool = Fals
             "ai_model": stats.ai_model,
         },
         "summary": {
-            "total_findings": len(public),
-            "verified_live": stats.verified_live,
-            "invalid": sum(1 for f in findings if f.verified.value == "invalid"),
-            "ai_false": sum(1 for f in findings if f.ai_verdict == "false"),
-            "hidden": sum(1 for f in findings if f.hidden),
+            "total_findings": len(groups),
+            "total_occurrences": len(findings),
+            "verified_live": sum(1 for g in groups if g.rep.verified is Verified.LIVE),
+            "invalid": sum(1 for g in groups if g.rep.verified.value == "invalid"),
+            "ai_false": sum(1 for g in groups if g.rep.ai_verdict == "false"),
+            "hidden": sum(1 for g in groups if g.rep.hidden),
             "suppressed_by_baseline": stats.suppressed,
             "by_severity": {
-                sev.label: sum(1 for f in findings if f.severity == sev and not f.hidden)
+                sev.label: sum(1 for g in groups if g.rep.severity == sev and not g.rep.hidden)
                 for sev in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM)
             },
-            "by_type": dict(Counter(f.detector for f in findings)),
+            "by_type": dict(Counter(g.rep.detector for g in groups)),
             "assets": {k: len(v) for k, v in assets.items()},
         },
         "findings": public,

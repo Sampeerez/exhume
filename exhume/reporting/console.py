@@ -5,7 +5,7 @@ from collections import defaultdict
 
 from ..config import Config
 from ..console import Colors as C
-from ..models import FileResult, ScanStats, Severity, Verified, finding_sort_key
+from ..models import FileResult, ScanStats, Severity, Verified, finding_sort_key, group_findings
 from .json_report import human_size
 
 _SEV_COLOR = {3: C.R, 2: C.Y, 1: C.B}
@@ -62,12 +62,14 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
 
     invalid = [f for f in findings if f.hidden]
     findings = [f for f in findings if not f.hidden]
+    # The same value seen in many places is one real issue, not one per occurrence.
+    groups = group_findings(findings)
     by_sev: dict[int, list] = defaultdict(list)
-    for f in findings:
-        by_sev[int(f.severity)].append(f)
+    for g in groups:
+        by_sev[int(g.rep.severity)].append(g)
 
     min_sev = _MIN_SEV[cfg.min_sev]
-    if findings:
+    if groups:
         print(f"{C.BOLD}── Secrets & sensitive data ──{C.END}")
         for sev in (3, 2, 1):
             if sev < min_sev:
@@ -76,16 +78,19 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
             if not group:
                 continue
             col = _SEV_COLOR[sev]
-            print(f"\n{col}{C.BOLD}[{Severity(sev).label}]{C.END} {col}{len(group)} finding(s){C.END}")
+            print(f"\n{col}{C.BOLD}[{Severity(sev).label}]{C.END} {col}{len(group)} unique finding(s){C.END}")
             per_type: dict[str, list] = defaultdict(list)
-            for f in group:
-                per_type[f.detector].append(f)
+            for g in group:
+                per_type[g.rep.detector].append(g)
             for detector, items in sorted(per_type.items(), key=lambda x: -len(x[1])):
                 print(f"  {col}▸ {detector}{C.END} ({len(items)})")
-                for f in items[:cfg.show_per_type]:
+                for g in items[:cfg.show_per_type]:
+                    f = g.rep
                     detail = f"  {C.DIM}{f.detail}{C.END}" if f.detail else ""
                     value = f.redacted if cfg.mask else (f.secret or f.redacted)
-                    print(f"    {_vtag(f.verified)}{C.DIM}{f.path}:{f.line}{C.END}  {C.W}{value}{C.END}{detail}")
+                    more = f" {C.GR}(+{g.count - 1} more location(s)){C.END}{C.DIM}" if g.count > 1 else ""
+                    where = f"{f.path}:{f.line}{more}"
+                    print(f"    {_vtag(f.verified)}{C.DIM}{where}{C.END}  {C.W}{value}{C.END}{detail}")
                 if len(items) > cfg.show_per_type:
                     print(f"    {C.GR}... and {len(items) - cfg.show_per_type} more{C.END}")
     else:
@@ -93,7 +98,8 @@ def print_report(results: list[FileResult], stats: ScanStats, cfg: Config) -> No
         print(f"{C.G}No{extra} findings.{C.END}")
 
     if invalid:
-        print(f"\n{C.GR}{len(invalid)} match(es) failed validation or were judged false positives "
+        n = len(group_findings(invalid))
+        print(f"\n{C.GR}{n} unique match(es) failed validation or were judged false positives "
               f"(checksum / host check / local AI) and are hidden here; they remain in the HTML (toggle) "
               f"and CSV/JSON exports.{C.END}")
 
@@ -123,6 +129,8 @@ def _print_databases(results: list[FileResult]) -> None:
             print(f"      {C.GR}tables:{C.END} {names}")
             if di.get("sensitive_columns"):
                 print(f"      {C.Y}sensitive columns:{C.END} {', '.join(di['sensitive_columns'][:12])}")
+            if di.get("ai_insight"):
+                print(f"      {C.M}AI:{C.END} {di['ai_insight']}")
 
 
 def _print_assets(results: list[FileResult]) -> None:

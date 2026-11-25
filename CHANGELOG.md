@@ -2,6 +2,30 @@
 
 All notable versions of Exhume.
 
+## [Unreleased]
+
+### Added
+- **Databases are scanned inside, not just peeked at.** Every row and column of a SQLite database
+  (any extension, detected by content) is read and run through the full detector engine, so
+  credentials, emails, IPs and PII hidden *in the data* are found, not just suspicious column names.
+  A BLOB cell that looks like an embedded file (another database, a document, an archive, a key...)
+  is extracted and scanned recursively, exactly like a nested archive, sharing the same extraction
+  budget. Proprietary binary formats Exhume can't parse (`.mdb`, `.accdb`, `.frm`, `.myd`, `.ibd`,
+  `.dbf`, `.mdf`, `.ldf`, `.ndf`) are at least string-scanned instead of skipped outright.
+  New `--db-max-rows` (default 5000) caps rows sampled per table.
+- **The same value is reported once, with every place it was found.** A password, email or key
+  pasted into 30 files used to print 30 near-identical lines; it now shows up as one finding with an
+  occurrence count (`×30`) and the full list of locations, in the console, HTML, CSV, JSON and SARIF
+  (SARIF now attaches every location to one result, so code-scanning tools group them correctly too).
+  Within a severity tier, a value seen in more places is shown first — it's the more urgent one to fix.
+- **The local AI now also explains sensitive databases and writes a richer triage.** For every
+  database with sensitive-looking columns, it writes a one-line, concrete risk summary (e.g. "customer
+  records with plaintext passwords and emails — high impersonation risk"), shown in the console and
+  HTML. The triage prompt now works on deduplicated findings (mentioning how widely a secret is
+  spread) and includes the sensitive-database summaries, so the executive summary and recommended
+  next steps reflect the whole picture, not just the top raw matches. A deterministic guard stops the
+  model from inventing a "fastest path to access" when there are no actual credential findings.
+
 ## [7.1.0] — 2026-11-24
 
 ### Added

@@ -69,16 +69,26 @@ def ext_of(name: str) -> str:
     return os.path.splitext(low)[1]
 
 
+# Magic kinds worth extracting from a database BLOB cell and feeding back through
+# process_entry recursively (documents, nested archives, keys, other databases...).
+RECURSE_MAGICS = {"executable", "database", "key_material", "pdf_document",
+                  "zip", "rar", "7z", "gzip", "bzip2", "xz"}
+
+
+def sniff_magic_bytes(head: bytes) -> str | None:
+    for sig, kind in _MAGIC:
+        if head.startswith(sig):
+            return kind
+    return None
+
+
 def sniff_magic(path: str) -> str | None:
     try:
         with open(path, "rb") as f:
             head = f.read(16)
     except OSError:
         return None
-    for sig, kind in _MAGIC:
-        if head.startswith(sig):
-            return kind
-    return None
+    return sniff_magic_bytes(head)
 
 
 # OS/app housekeeping files that are never interesting as "databases" or "config".

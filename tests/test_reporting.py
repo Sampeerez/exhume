@@ -114,7 +114,7 @@ def test_html_truncates_to_max_and_reports_omitted(tmp_path):
     p = tmp_path / "r.html"
     omitted = write_html(payload, str(p), max_findings=10)
     assert omitted == len(payload["findings"]) - 10
-    assert "highest-severity findings" in p.read_text()
+    assert "highest-severity unique values" in p.read_text()
     assert write_html(payload, str(p), max_findings=0) == 0
 
 

@@ -63,6 +63,12 @@ tbody tr.row:hover{background:#121a28}
 .val{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;color:#fef08a;max-width:360px;
  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:bottom;cursor:pointer}
 .val:hover{text-decoration:underline;text-decoration-style:dotted}
+.occ{display:inline-block;background:var(--panel2);color:var(--mut);border:1px solid var(--line);
+ border-radius:999px;padding:0 7px;font-size:10.5px;font-weight:700;margin-left:7px;vertical-align:1px}
+.locs{list-style:none;margin:6px 0 0;padding:0;max-height:220px;overflow:auto;
+ font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.locs li{padding:3px 0;border-bottom:1px solid var(--line);word-break:break-all;color:#cbd5e1}
+.locs .more{color:var(--mut);padding-top:5px}
 .caret{color:var(--mut);transition:transform .12s;display:inline-block}
 tr.open .caret{transform:rotate(90deg)}
 .detail td{background:#0c1119;padding:0}
@@ -84,6 +90,7 @@ h3{margin:16px 0 4px;color:#cbd5e1;font-size:13.5px}
 .asset ul{columns:2;gap:22px;padding-left:18px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
 .asset li{margin:3px 0;break-inside:avoid}
 .susp{color:var(--high);font-size:12.5px;margin:4px 0}
+.aiinsight{color:#c4b5fd;font-size:12.5px;margin:4px 0;font-style:italic}
 .subt{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:6px}
 .subt th,.subt td{border:1px solid var(--line);padding:5px 9px;text-align:left}
 .pager{display:flex;gap:8px;align-items:center;justify-content:center;margin:14px 0;color:var(--mut);font-size:13px}
@@ -149,7 +156,7 @@ footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
   <div class="card high" data-sev="2"><div class="n">__C2__</div><div class="l">High</div></div>
   <div class="card med"  data-sev="1"><div class="n">__C1__</div><div class="l">Medium</div></div>
   <div class="card live" data-sev="live"><div class="n">__LIVE__</div><div class="l">Verified live</div></div>
-  <div class="card" data-sev="all"><div class="n">__TOTAL__</div><div class="l">Total findings</div></div>
+  <div class="card" data-sev="all"><div class="n">__TOTAL__</div><div class="l">Unique findings</div></div>
  </div>
  <div class="rbanner">REPORT MODE · values are censored, paths are relative and dismissed findings are excluded. Click “Exit report mode” to go back.</div>
  <div class="bar">__BAR__</div>
@@ -252,6 +259,14 @@ function match(f){
         if(!hay.includes(q)) return false; }
  return true;
 }
+function locsHTML(f){
+ const locs=f.locations||[{path:f.path,line:f.line,col:f.col}];
+ const CAP=50;
+ let h='<ul class="locs">'+locs.slice(0,CAP).map(l=>'<li>'+esc(relPath(l.path))+':'+l.line+(l.col?(':'+l.col):'')+'</li>').join('');
+ const extra=(f.locations_truncated||0)+Math.max(0,locs.length-CAP);
+ if(extra>0) h+='<li class="more">… and '+extra.toLocaleString()+' more location(s) (see the CSV/JSON export)</li>';
+ return h+'</ul>';
+}
 function detailHTML(f,i){
  const loc=esc(relPath(f.path))+':'+f.line+(f.col?(':'+f.col):'');
  let code='';
@@ -262,20 +277,20 @@ function detailHTML(f,i){
  if(!code) code='<div class="ln"><span class="src">'+hi(f.context,f)+'</span></div>';
  const vb = vbadge(f)||'unknown';
  const dis=DIS.has(f.fingerprint);
+ const occ=f.occurrences||1;
  return '<div class="detailbox">'
   +'<div class="dgrid">'
-  +'<div><span class="k">Location</span><span class="loc">'+loc+'</span></div>'
+  +'<div><span class="k">'+(occ>1?'First location':'Location')+'</span><span class="loc">'+loc+'</span></div>'
   +'<div><span class="k">Detector</span>'+esc(f.detector)+'</div>'
   +'<div><span class="k">Verified</span>'+vb+'</div>'
   +(f.detail?('<div><span class="k">Detail</span>'+esc(f.detail)+'</div>'):'')
   +'</div>'
+  +(occ>1?('<div><span class="k">Seen in '+occ.toLocaleString()+' places</span></div>'+locsHTML(f)):'')
   +'<div class="detailbtns">'
   +'<button class="btn" onclick="copy(DATA.findings['+i+'].value)">Copy value</button>'
-  +'<button class="btn" onclick="copy(DATA.findings['+i+'].path)">Copy path</button>'
+  +'<button class="btn" onclick="copy((DATA.findings['+i+'].locations||[]).map(l=>l.path+\':\'+l.line).join(\'\\n\'))">Copy all locations</button>'
   +(dis?'<button class="btn" onclick="setDis(['+i+'],false)">Restore</button>'
        :'<button class="btn danger" onclick="setDis(['+i+'],true)">Not real — dismiss</button>'
-        +'<button class="btn danger" onclick="dismissWhere('+i+',\'file\')">Dismiss all of this detector in this file</button>'
-        +'<button class="btn danger" onclick="dismissWhere('+i+',\'value\')">Dismiss all with this value</button>'
         +'<button class="btn danger" onclick="dismissWhere('+i+',\'detector\')">Dismiss whole detector</button>')
   +'</div>'
   +'<div class="code">'+code+'</div>'
@@ -284,7 +299,9 @@ function detailHTML(f,i){
 function rowFor(f,i){
  const tr=document.createElement('tr'); tr.className='row'+(DIS.has(f.fingerprint)?' dis':'')+(f.verified==='invalid'||f.ai==='false'?' inv':'');
  const vb=vbadge(f);
- const loc=esc(relPath(f.path))+':'+f.line+(f.col?(':'+f.col):'');
+ const occ=f.occurrences||1;
+ const occBadge=occ>1?'<span class="occ" title="This exact value appears in '+occ.toLocaleString()+' places">×'+occ.toLocaleString()+'</span>':'';
+ const loc=esc(relPath(f.path))+':'+f.line+(f.col?(':'+f.col):'')+occBadge;
  const dis=DIS.has(f.fingerprint);
  tr.innerHTML='<td><span class="caret">▸</span></td>'
   +'<td><span class="pill p'+f.severity+'">'+SEVLBL[f.severity]+'</span></td>'
@@ -314,7 +331,7 @@ function render(resetPage){
  let ninv=0; if(document.getElementById('hideinv').checked||REPORT) DATA.findings.forEach(f=>{if(f.verified==='invalid'||f.ai==='false')ninv++;});
  const ni=ninv?(' · '+ninv.toLocaleString()+' hidden'):'';
  const nd=DIS.size?(' · '+DIS.size.toLocaleString()+' dismissed'):'';
- document.getElementById('count').textContent=view.length.toLocaleString()+' / '+DATA.findings.length.toLocaleString()+' findings'+ni+nd;
+ document.getElementById('count').textContent=view.length.toLocaleString()+' / '+DATA.findings.length.toLocaleString()+' unique value(s)'+ni+nd;
  renderPager(pages); updateCards();
 }
 function updateCards(){ // totals minus dismissed (dismissed ones can only be among the embedded findings)
@@ -332,12 +349,8 @@ function setDis(idx,on){
 }
 function dismissWhere(i,kind){
  const f=DATA.findings[i]; const hit=[];
- DATA.findings.forEach((g,j)=>{
-  if(kind==='file' && g.detector===f.detector && g.path===f.path) hit.push(j);
-  else if(kind==='value' && g.value===f.value) hit.push(j);
-  else if(kind==='detector' && g.detector===f.detector) hit.push(j);
- });
- if(hit.length>1 && !confirm('Dismiss '+hit.length.toLocaleString()+' findings?')) return;
+ DATA.findings.forEach((g,j)=>{ if(kind==='detector' && g.detector===f.detector) hit.push(j); });
+ if(hit.length>1 && !confirm('Dismiss '+hit.length.toLocaleString()+' unique value(s)?')) return;
  setDis(hit,true);
 }
 function dismissFiltered(){
@@ -348,9 +361,10 @@ function dismissFiltered(){
 function restoreAll(){ if(!DIS.size||!confirm('Restore all '+DIS.size+' dismissed findings?')) return; DIS=new Set(); saveDis(); render(false); }
 function csvCell(v){v=String(v==null?'':v);return '"'+v.replace(/"/g,'""')+'"';}
 function exportReviewed(){
- const rows=[['severity','verified','detector','path','line','value','detail']];
+ const rows=[['severity','verified','detector','occurrences','path','line','value','detail']];
  DATA.findings.forEach(f=>{ if(DIS.has(f.fingerprint)) return;
-  rows.push([SEVLBL[f.severity],f.verified==='live'?'LIVE':(f.verified==='dead'?'DEAD':''),f.detector,f.path,f.line,f.value,f.detail||'']); });
+  rows.push([SEVLBL[f.severity],f.verified==='live'?'LIVE':(f.verified==='dead'?'DEAD':''),f.detector,
+             f.occurrences||1,f.path,f.line,f.value,f.detail||'']); });
  const blob=new Blob(['﻿'+rows.map(r=>r.map(csvCell).join(',')).join('\n')],{type:'text/csv'});
  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='exhume_reviewed.csv'; a.click();
  toast((rows.length-1)+' findings exported');
@@ -379,7 +393,10 @@ function toggleAll(on){
 function copyLive(){
  const live=DATA.findings.filter(f=>f.verified==='live'&&!DIS.has(f.fingerprint));
  if(!live.length){toast('No verified-live credentials');return;}
- copy(live.map(f=>f.detector+'\t'+f.path+':'+f.line+'\t'+f.value).join('\n'));
+ copy(live.map(f=>{
+  const locs=(f.locations||[{path:f.path,line:f.line}]).map(l=>l.path+':'+l.line).join(', ');
+  return f.detector+'\t'+locs+'\t'+f.value;
+ }).join('\n'));
 }
 // ---- assets: collapsible folder tree, built lazily ----
 function human(n){const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return n.toFixed(1)+u[i];}
@@ -439,6 +456,7 @@ function dbHTML(kids,items){
  (DATA.databases||[]).forEach(d=>{ if(!paths.has(d.path)) return;
   h+='<h3 class="loc">'+esc(d.path)+'</h3>';
   const sc=(d.sensitive_columns||[]); if(sc.length) h+='<p class="susp">⚠ sensitive columns: '+esc(sc.join(', '))+'</p>';
+  if(d.ai_insight) h+='<p class="aiinsight">🤖 '+esc(d.ai_insight)+'</p>';
   const tb=(d.tables||[]); if(tb.length){ h+='<table class="subt"><thead><tr><th>Table</th><th>Rows</th><th>Columns</th></tr></thead><tbody>';
    tb.forEach(t=>{h+='<tr><td>'+esc(t.name)+'</td><td>'+(t.rows==null?'':t.rows)+'</td><td class="loc">'+esc((t.columns||[]).join(', '))+'</td></tr>';});
    h+='</tbody></table>'; } });
@@ -516,13 +534,21 @@ _CHUNK = 5_000
 _FIELD_CAP = 400
 
 
+_LOC_EMBED_CAP = 50  # locations embedded per group in the HTML (the JSON export has them all)
+
+
 def _compact(f: dict, keep_block: bool) -> dict:
     """Trim a finding for embedding in HTML (the JSON/CSV keep the full data)."""
-    out = {k: f[k] for k in ("detector", "severity", "line", "col", "path", "verified", "detail", "fingerprint", "ai", "ai_note")}
+    out = {k: f[k] for k in ("detector", "severity", "line", "col", "path", "verified", "detail",
+                             "fingerprint", "ai", "ai_note", "occurrences")}
     out["value"] = f["value"][:_FIELD_CAP] if f["value"] else f["value"]
     out["context"] = (f["context"] or "")[:_FIELD_CAP]
     if keep_block and f.get("context_block"):
         out["context_block"] = [[n, t[:_FIELD_CAP]] for n, t in f["context_block"]]
+    locs = f.get("locations") or []
+    if f["occurrences"] > 1:
+        out["locations"] = locs[:_LOC_EMBED_CAP]
+        out["locations_truncated"] = f.get("locations_truncated", 0) + max(0, len(locs) - _LOC_EMBED_CAP)
     return out
 
 
@@ -544,10 +570,12 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
            f"<i style='width:{c1 / total * 100:.1f}%;background:var(--med)'></i>")
     supp = rs.get("suppressed_by_baseline", 0)
     supp_note = f" · {supp} hidden by baseline" if supp else ""
+    occ_note = f" ({rs['total_occurrences']:,} occurrences, deduplicated by value)" if rs.get(
+        "total_occurrences", 0) > rs["total_findings"] else ""
     metaline = (f"Target: <b class=\"tgt\" data-real=\"{_h.escape(m['target'], quote=True)}\">{_h.escape(m['target'])}</b>"
                 f" · {m['files_scanned']} scanned / "
                 f"{m['files_seen']} seen · {m['nested']} nested · {m['git_blobs']} git-history · "
-                f"{m['seconds']}s{supp_note} · {_h.escape(m['generated'])} · v{m['version']}")
+                f"{m['seconds']}s{supp_note} · {_h.escape(m['generated'])} · v{m['version']}{occ_note}")
     cov = m.get("coverage") or {}
     _lbl = {"scanned": "content scanned", "archives": "archives unpacked", "media_skipped": "media skipped",
             "binary_skipped": "binary skipped", "document_failed": "documents unreadable",
@@ -575,7 +603,7 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
         '<script class="chunk" type="application/json">'
         + json.dumps(c, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
         + "</script>" for c in chunks)
-    trunc = (f'<div class="trunc">Showing the {len(embedded):,} highest-severity findings of '
+    trunc = (f'<div class="trunc">Showing the {len(embedded):,} highest-severity unique values of '
              f'{len(all_f):,}. The full list is in the accompanying .csv / .json export '
              f'(or re-run with <code>--html-max 0</code> to embed everything).</div>') if omitted else ""
 

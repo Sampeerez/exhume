@@ -30,6 +30,7 @@ class Config:
     scan_strings: bool = False
     ocr: bool = True            # OCR images when tesseract is available (auto-skips if not)
     db_peek: bool = True
+    db_max_rows: int = 5000     # rows sampled per table when scanning database CONTENT for secrets
     git_history: bool = True
     force_git: bool = False
     exclude: list[str] = field(default_factory=list)   # path globs to skip

@@ -5,7 +5,9 @@ from . import magic
 from .archives import ExtractionBudget, extract, safe_join
 from .documents import extract_document
 from .ocr import ocr_image
+from .sqlite_peek import DBScan
 from .sqlite_peek import peek as sqlite_peek
+from .sqlite_peek import scan_contents as sqlite_scan_contents
 from .text import extract_strings, read_textish
 
 __all__ = [
@@ -16,6 +18,8 @@ __all__ = [
     "extract_document",
     "ocr_image",
     "sqlite_peek",
+    "sqlite_scan_contents",
+    "DBScan",
     "read_textish",
     "extract_strings",
 ]

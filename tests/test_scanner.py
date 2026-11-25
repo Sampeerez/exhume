@@ -114,3 +114,43 @@ def test_coverage_counts(tmp_path, cfg):
     scanner.run()
     assert scanner.stats.coverage.get("scanned") == 1
     assert scanner.stats.coverage.get("media_skipped") == 1
+
+
+def test_sqlite_content_is_scanned_for_secrets(tmp_path, cfg):
+    import sqlite3
+
+    db = tmp_path / "clientes.db"
+    con = sqlite3.connect(str(db))
+    con.execute("create table users(id int, email text, password text)")
+    for i in range(3):
+        con.execute("insert into users values(?,?,?)", (i, f"user{i}@corp.com", "hunter2hunter2!!"))
+    con.commit()
+    con.close()
+    cfg.target = str(tmp_path)
+    scanner = Scanner(cfg)
+    results = scanner.run()
+    db_result = next(r for r in results if r.path.endswith("clientes.db"))
+    assert db_result.method == "sqlite-content"
+    detectors = {f.detector for f in db_result.findings}
+    assert "Email" in detectors
+    assert "Credential assignment" in detectors
+    pw = next(f for f in db_result.findings if f.detector == "Credential assignment")
+    assert "users.password[row" in pw.path
+
+
+def test_sqlite_blob_with_embedded_secret_is_scanned_recursively(tmp_path, cfg):
+    import sqlite3
+
+    db = tmp_path / "attachments.db"
+    con = sqlite3.connect(str(db))
+    con.execute("create table files(id int, data blob)")
+    payload = b"%PDF-1.4 leaked token ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8 rest of pdf padding........"
+    con.execute("insert into files values(1, ?)", (payload,))
+    con.commit()
+    con.close()
+    cfg.target = str(tmp_path)
+    scanner = Scanner(cfg)
+    results = scanner.run()
+    nested = [r for r in results if " ::> " in r.path and "files.data" in r.path]
+    assert nested, [r.path for r in results]
+    assert any(f.detector == "GitHub token" for r in nested for f in r.findings)

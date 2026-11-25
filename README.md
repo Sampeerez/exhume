@@ -22,16 +22,18 @@ Sensitive-data discovery and verification for security audits and pentests.
 ## What it does
 
 Point it at a folder, an SMB share, a Docker image, an S3 bucket, a Git repo (history included) or a single
-file. Exhume reads **inside** PDF, Word, Excel, PowerPoint, e-mails, images (OCR), nested archives and
-binaries, and reports credentials, tokens, private keys, PII (cards, IBAN, DNI/NIE, SSN), IPs, URLs,
-connection strings and databases. Then it works out **which findings are real**:
+file. Exhume reads **inside** PDF, Word, Excel, PowerPoint, e-mails, images (OCR), nested archives,
+binaries and **databases** (every row/column of a SQLite database is read, not just its column names — a
+BLOB that looks like an embedded file is extracted and scanned too), and reports credentials, tokens,
+private keys, PII (cards, IBAN, DNI/NIE, SSN), IPs, URLs and connection strings. Then it works out
+**which findings are real**, and reports the same value **once** no matter how many files it's in:
 
 | Step | What happens |
 |---|---|
-| **1 · Detect** | ~70 detectors + a high-entropy pass, with a focused snippet around each match. |
+| **1 · Detect** | ~70 detectors + a high-entropy pass, with a focused snippet around each match. The same value found in many places is one finding with an occurrence count, not one row per occurrence. |
 | **2 · Check** | IBAN (mod-97 + Spanish account digits), cards (Luhn), DNI/NIE (control letter); every IP is probed (TCP + reverse DNS). Nothing is dropped — failures are flagged *invalid*. |
 | **3 · Verify** | Credentials are tested against the provider API (AWS, GitHub, GitLab, Slack, Stripe…) → **LIVE** / dead. |
-| **4 · Judge** | A **bundled local AI** reads each ambiguous match in context: `3.2.2.1` in a manual is not an IP, an invoice total is not a card. False positives are hidden, never deleted. |
+| **4 · Judge & brief** | A **bundled local AI** reads each ambiguous match in context: `3.2.2.1` in a manual is not an IP, an invoice total is not a card. It also writes a one-line risk note for sensitive databases and a short triage summary, so the auditor gets a head start, not just a list. |
 
 ## Quick start
 
@@ -92,6 +94,7 @@ exhume . --mask --no-open                          # client-safe output
 | `--strings` · `--no-ocr` · `--quick` · `--deep` | Binary strings · OCR off · fast / exhaustive profiles |
 | `--rules FILE` · `--allowlist FILE` | Custom YAML/JSON rules ([example](rules/example.yaml)) · regexes to ignore |
 | `--file-timeout S` · `--workers N` | Per-file time limit (default 120 s) · parallelism |
+| `--no-db-peek` · `--db-max-rows N` | Don't open databases at all · rows sampled per table when scanning their content (default 5000) |
 
 `exhume --help` lists everything. Exit code is `1` when High/Critical findings exist.
 </details>
@@ -100,11 +103,13 @@ exhume . --mask --no-open                          # client-safe output
 
 An interactive, self-contained HTML dashboard:
 
+- **One row per value** — a password or e-mail pasted into 30 files shows up once, with a `×30` badge and
+  every location (expand the row, or check the `occurrences`/`locations` columns in the CSV/JSON).
 - **Filter & triage** — by severity, detector or text; paginated, so it stays fast with 100 000+ findings.
 - **Real vs. noise** — "Hide invalid / AI false positives" is on by default (one click to see what was discarded and *why*).
-- **Dismiss** false positives yourself — one, by file, by value or by detector; saved in your browser; **Export reviewed CSV**.
+- **Dismiss** false positives yourself — one value, or a whole detector; saved in your browser; **Export reviewed CSV**.
 - **📷 Report mode** — censors values and context, shows relative paths and hides every control, ready for a client screenshot.
-- **Assets** — databases, configs, keys and executables as collapsible folder trees (thumbnail caches and similar noise filtered out).
+- **Assets** — databases, configs, keys and executables as collapsible folder trees (thumbnail caches and similar noise filtered out), with a one-line **AI risk summary** next to each sensitive database.
 - **Coverage** line: how many files were scanned, skipped or unreadable — so you know nothing was silently missed.
 
 ## Use it in your pipeline

@@ -20,7 +20,15 @@ from . import ai_filter, baseline
 from .config import Config
 from .console import Colors, eprint
 from .detectors import aws_secret_candidates, cached_rules, scan_text
-from .extractors import ExtractionBudget, extract, extract_document, ocr_image, read_textish, sqlite_peek
+from .extractors import (
+    ExtractionBudget,
+    extract,
+    extract_document,
+    ocr_image,
+    read_textish,
+    sqlite_peek,
+    sqlite_scan_contents,
+)
 from .extractors.magic import (
     BINARY_SKIP,
     DOC_EXTRACT,
@@ -38,6 +46,9 @@ from .verify import VERIFIERS, verify_aws_pair, verify_single
 from .verify.network import NETWORK_VERIFIERS, raise_fd_limit
 
 _SQLITE_EXT = {".db", ".sqlite", ".sqlite3", ".db3", ".sqlitedb"}
+# Proprietary binary database formats we have no reader for. We can't look at their
+# structure, so they're at least string-scanned like an executable (--strings behavior).
+_OPAQUE_DB_EXT = {".mdb", ".accdb", ".frm", ".myd", ".ibd", ".dbf", ".ndf", ".mdf", ".ldf"}
 
 # Worker config: set ONCE per process/thread (pool initializer), avoiding
 # re-serializing Config on each of the thousands of tasks.
@@ -113,6 +124,60 @@ def _bump(counter: dict | None, key: str) -> None:
         counter[key] = counter.get(key, 0) + 1
 
 
+def _scan_sqlite(real_path: str, display_path: str, cfg: Config, allow, extra_detectors):
+    """Scan EVERY row/column of a SQLite database for secrets, not just column names.
+
+    Returns (findings, note, blobs, scan.ok). *blobs* are BLOB cells that look like an
+    embedded file (another database, a document, an archive, a key...), for the caller
+    to extract and scan recursively, exactly like a nested archive.
+    """
+    scan = sqlite_scan_contents(real_path, max_rows=cfg.db_max_rows)
+    if not scan.ok:
+        return [], None, [], False
+    text = "\n".join(scan.lines)
+    findings = scan_text(text, cfg.min_entropy, allow, tuple(extra_detectors),
+                         use_builtin=not cfg.no_default_rules, context_width=cfg.context_width)
+    for f in findings:
+        if 1 <= f.line <= len(scan.locations):
+            table, col, row = scan.locations[f.line - 1]
+            f.path = f"{display_path} » {table}.{col}[row {row}]"
+            f.line = row
+        else:
+            f.path = display_path
+    _pair_aws(findings, text)
+    note = None
+    if scan.truncated:
+        note = f"content sampled: {scan.tables_scanned} table(s), {scan.rows_scanned} row(s) read"
+    return findings, note, scan.blobs, True
+
+
+def _scan_db_blobs(blobs: list[tuple[str, str, int, bytes]], display_path: str, cfg: Config,
+                   depth: int, budget: ExtractionBudget | None, counter: dict | None) -> list[FileResult]:
+    """Extract BLOB cells that look like embedded files and scan them recursively.
+
+    Shares the archive extraction budget, so a database stuffed with embedded archives
+    or other databases can't be used to exhaust disk/time any more than a nested zip can.
+    """
+    out: list[FileResult] = []
+    b = budget or ExtractionBudget(cfg.archive_max_mb * 1024 * 1024, cfg.archive_max_files)
+    tmp = tempfile.mkdtemp(prefix="exhume_db_")
+    try:
+        for table, col, row, data in blobs:
+            if not b.consume(len(data)):
+                break
+            fp = os.path.join(tmp, f"{table}.{col}.row{row}.bin")
+            try:
+                with open(fp, "wb") as fh:
+                    fh.write(data)
+            except OSError:
+                continue
+            inner = f"{display_path} ::> {table}.{col}[row {row}]"
+            out.extend(process_entry(fp, inner, cfg, depth + 1, b, counter))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return out
+
+
 def process_entry(real_path: str, display_path: str, cfg: Config,
                   depth: int = 0, budget: ExtractionBudget | None = None,
                   counter: dict | None = None) -> list[FileResult]:
@@ -133,12 +198,29 @@ def process_entry(real_path: str, display_path: str, cfg: Config,
     extra_detectors, allow = cached_rules(rules_key, cfg.allowlist_file)
 
     rec = FileResult(path=display_path, name=name, ext=ext, size=size, tags=tags)
-
-    if "database" in tags and (magic_kind == "database" or ext in _SQLITE_EXT):
-        if cfg.db_peek and size <= cfg.max_bytes:
-            rec.db_info = sqlite_peek(real_path)
-
     too_big = size > cfg.max_bytes
+
+    is_sqlite = "database" in tags and (magic_kind == "database" or ext in _SQLITE_EXT)
+    if is_sqlite and cfg.db_peek and not too_big:
+        rec.db_info = sqlite_peek(real_path)
+        findings, note, blobs, ok = _scan_sqlite(real_path, display_path, cfg, allow, extra_detectors)
+        if ok:
+            rec.method = "sqlite-content"
+            rec.note = note
+            rec.findings = findings
+            _bump(counter, "scanned")
+            if any("Private key" in f.detector for f in findings) and "key_material" not in rec.tags:
+                rec.tags.append("key_material")
+            results = [rec] if rec.interesting else []
+            if blobs and depth < cfg.max_depth:
+                results.extend(_scan_db_blobs(blobs, display_path, cfg, depth, budget, counter))
+            return results
+        # Could not even open it as SQLite (encrypted/corrupt): fall through to the
+        # generic opaque-binary handling below, same as any other unreadable database.
+
+    # Proprietary binary database we can't parse structurally: string-scan it like a
+    # binary, so plaintext secrets embedded in it are still found.
+    force_db_strings = "database" in tags and not too_big and (ext in _OPAQUE_DB_EXT or (is_sqlite and cfg.db_peek))
 
     # Archive -> extract and recurse
     is_archive = "archive" in tags
@@ -158,9 +240,10 @@ def process_entry(real_path: str, display_path: str, cfg: Config,
             shutil.rmtree(tmp, ignore_errors=True)
         return results
 
-    # Executables and key material are string-scanned even without --strings, so
-    # secrets embedded in binaries are still found; noisy media stays skipped.
-    want_strings = cfg.scan_strings or "executable" in tags or "key_material" in tags
+    # Executables, key material and unparseable databases are string-scanned even
+    # without --strings, so secrets embedded in binaries are still found; noisy media
+    # stays skipped.
+    want_strings = cfg.scan_strings or "executable" in tags or "key_material" in tags or force_db_strings
 
     # Choose the text-extraction method
     text: str | None = None
@@ -314,8 +397,8 @@ class Scanner:
         self.stats.scanned = self._coverage.get("scanned") or sum(1 for r in results if r.method)
         self.stats.nested = sum(1 for r in results if " ::> " in r.path)
         self.stats.git_blobs = sum(1 for r in results if "git_history" in r.tags)
-        self.stats.verified_live = sum(1 for r in results for f in r.findings
-                                       if f.verified is Verified.LIVE)
+        self.stats.verified_live = len({f.value_fingerprint() for r in results for f in r.findings
+                                        if f.verified is Verified.LIVE})
         if cfg.ai:
             self._ai_filter(results)
         if cfg.ai and any(r.findings for r in results):
@@ -444,6 +527,9 @@ class Scanner:
                                     "assets_kept": sa["real"]}
             eprint(f"{Colors.GR}AI assets: {sa['false']} noise file(s) hidden, {sa['real']} kept "
                    f"({sa['asked']} model calls).{Colors.END}")
+            n = ai_filter.judge_db_insights(results, engine)
+            if n:
+                eprint(f"{Colors.GR}AI: wrote a one-line risk summary for {n} sensitive database(s).{Colors.END}")
 
     def _verify_ips(self, results: list[FileResult]) -> None:
         """Check that every discovered IP is a real, reachable/assigned host (deduplicated)."""

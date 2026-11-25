@@ -61,6 +61,12 @@ class Finding:
         # Line is intentionally excluded so edits that shift lines don't break the match.
         return f"{self.detector}|{self.path}|{digest}"
 
+    def value_fingerprint(self) -> str:
+        """Identity of the (detector, value) PAIR, ignoring path/line — used to collapse the
+        same secret or PII value seen in many places into a single reported entry."""
+        basis = self.secret if self.secret else self.redacted
+        return hashlib.sha256(f"{self.detector}|{basis}".encode("utf-8", "replace")).hexdigest()[:16]
+
     def _mask(self, text: str) -> str:
         return text.replace(self.secret, self.redacted) if self.secret and text else text
 
@@ -121,3 +127,47 @@ class ScanStats:
 def finding_sort_key(f: Finding) -> tuple:
     """Sort: live credentials first, then by severity, then by path."""
     return (f.verified is not Verified.LIVE, f.hidden, -int(f.severity), f.path, f.line)
+
+
+@dataclass
+class FindingGroup:
+    """Every occurrence of the same (detector, value) pair, collapsed into one entry.
+
+    A password or an email address pasted into 30 files is one real-world fact to fix,
+    not 30 — the report shows it once, with every place it was found.
+    """
+    rep: Finding                                        # representative occurrence (first seen)
+    locations: list[tuple[str, int, int]] = field(default_factory=list)  # (path, line, col)
+
+    @property
+    def count(self) -> int:
+        return len(self.locations)
+
+    @property
+    def fingerprint(self) -> str:
+        return self.rep.value_fingerprint()
+
+
+def group_findings(findings: list[Finding]) -> list[FindingGroup]:
+    """Collapse findings that share a detector + value into one :class:`FindingGroup` each,
+    preserving first-seen order. All occurrences of the same value already carry identical
+    severity/verified/ai_verdict (those are computed from the value itself), so the first
+    occurrence can safely stand in for the group."""
+    groups: dict[str, FindingGroup] = {}
+    order: list[str] = []
+    for f in findings:
+        key = f.value_fingerprint()
+        g = groups.get(key)
+        if g is None:
+            g = FindingGroup(rep=f)
+            groups[key] = g
+            order.append(key)
+        g.locations.append((f.path, f.line, f.col))
+    return [groups[k] for k in order]
+
+
+def group_sort_key(g: FindingGroup) -> tuple:
+    """Like :func:`finding_sort_key`, but a value seen in more places sorts first within
+    its severity tier — it's the more urgent one to fix."""
+    f = g.rep
+    return (f.verified is not Verified.LIVE, f.hidden, -int(f.severity), -g.count, f.path, f.line)

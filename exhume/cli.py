@@ -69,7 +69,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Path glob to skip (repeatable), e.g. '*.min.js'")
     scope.add_argument("--include", action="append", default=[], metavar="GLOB",
                        help="If set, only scan paths matching these globs (repeatable)")
-    scope.add_argument("--no-db-peek", dest="db_peek", action="store_false")
+    scope.add_argument("--no-db-peek", dest="db_peek", action="store_false",
+                       help="Don't open databases to list tables or scan row data for secrets")
+    scope.add_argument("--db-max-rows", type=int, default=5000,
+                       help="Rows sampled per table when scanning database content (def 5000)")
     scope.add_argument("--follow-links", action="store_true")
     scope.add_argument("--quick", action="store_true", help="Fast profile")
     scope.add_argument("--deep", action="store_true", help="Exhaustive profile (strings+ocr+depth)")
@@ -136,6 +139,7 @@ def args_to_config(a: argparse.Namespace) -> Config:
         open_report=not a.no_open, max_size_mb=a.max_size, min_entropy=a.min_entropy,
         max_depth=a.max_depth, archive_max_mb=a.archive_max_mb, archive_max_files=a.archive_max_files,
         follow_links=a.follow_links, scan_strings=a.strings, ocr=a.ocr, db_peek=a.db_peek,
+        db_max_rows=a.db_max_rows,
         git_history=a.git_history, force_git=a.git, exclude=list(a.exclude), include=list(a.include),
         verify=a.verify, probe_ips=a.probe_ips, only_verified=a.only_verified,
         rules_files=list(a.rules), allowlist_file=a.allowlist, no_default_rules=a.no_default_rules,
