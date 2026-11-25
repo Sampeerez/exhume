@@ -7,6 +7,7 @@ filtering. No external dependencies; works offline.
 from __future__ import annotations
 
 import json
+import re
 
 _TEMPLATE = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -490,8 +491,17 @@ render(); renderExtra();
 </script></body></html>"""
 
 
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _inline_md(escaped: str) -> str:
+    """``**bold**`` -> ``<strong>bold</strong>``, applied AFTER escaping (the `*`s survive
+    html.escape untouched, so this is still safe against anything the model wrote)."""
+    return _BOLD_RE.sub(r"<strong>\1</strong>", escaped)
+
+
 def _md_to_html(text: str) -> str:
-    """Minimal, safe Markdown-ish rendering (headings, lists, paragraphs)."""
+    """Minimal, safe Markdown-ish rendering (headings, lists, paragraphs, **bold**)."""
     import html as _h
     out, in_list = [], False
     for raw in text.splitlines():
@@ -501,17 +511,17 @@ def _md_to_html(text: str) -> str:
                 out.append("</ul>")
                 in_list = False
             continue
-        esc = _h.escape(line.strip())
+        esc = _inline_md(_h.escape(line.strip()))
         if line.lstrip().startswith("## "):
             if in_list:
                 out.append("</ul>")
                 in_list = False
-            out.append(f"<h3>{_h.escape(line.lstrip()[3:])}</h3>")
+            out.append(f"<h3>{_inline_md(_h.escape(line.lstrip()[3:]))}</h3>")
         elif line.lstrip()[:2] in ("- ", "* ") or (line.lstrip()[:2].rstrip() == "-"):
             if not in_list:
                 out.append("<ul>")
                 in_list = True
-            out.append(f"<li>{_h.escape(line.lstrip()[2:])}</li>")
+            out.append(f"<li>{_inline_md(_h.escape(line.lstrip()[2:]))}</li>")
         elif line.lstrip()[:3].strip().rstrip(".").isdigit():
             if not in_list:
                 out.append("<ul>")

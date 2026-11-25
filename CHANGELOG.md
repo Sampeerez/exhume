@@ -58,6 +58,14 @@ then re-validated with a 16-case regression battery covering every detector the 
 ### Changed
 - README rewritten: shorter, bullet-driven, secondary detail moved into collapsible sections —
   aimed at being readable in one scroll instead of explaining every internal design decision.
+  Trimmed further: fewer/no decorative emoji, no duplicate bullets between sections, plainer
+  phrasing. Added a second GIF, `docs/report-demo.gif` (`make report-demo`,
+  `scripts/make_report_demo.py`), that drives the actual HTML report with a real browser
+  (Playwright + the system Chrome) — severity filtering, a finding expanded, Report mode, and
+  toggling hidden/invalid matches back on — instead of only showing the terminal.
+- Fixed a real rendering bug this surfaced: the AI triage summary's `**bold**` Markdown was never
+  converted to `<strong>` in the HTML report (it rendered as literal asterisks); the console output
+  already handled this correctly. `exhume/reporting/html.py`'s `_md_to_html` now does too.
 
 ### Security
 - **The "local AI never sends data anywhere" claim is now an enforced check, not just a promise.**

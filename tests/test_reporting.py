@@ -123,3 +123,10 @@ def test_html_has_report_mode_and_dismiss(tmp_path):
     write_html(build_payload(_sample_results(), _stats()), str(p))
     html = p.read_text()
     assert "toggleReport" in html and "setDis" in html and "exhume-dismissed" in html
+
+
+def test_ai_triage_bold_markdown_is_rendered_in_html():
+    from exhume.reporting.html import _md_to_html
+    out = _md_to_html("## Fastest paths to access\n- **AWS Credentials**: rotate immediately.")
+    assert "<strong>AWS Credentials</strong>" in out
+    assert "**" not in out

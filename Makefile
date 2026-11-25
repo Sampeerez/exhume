@@ -1,4 +1,4 @@
-.PHONY: help install install-full test lint cov clean build demo
+.PHONY: help install install-full test lint cov clean build demo report-demo
 
 help:
 	@echo "make install       - install the package (core)"
@@ -7,7 +7,8 @@ help:
 	@echo "make cov           - tests with coverage report"
 	@echo "make lint          - ruff"
 	@echo "make build         - build wheel/sdist"
-	@echo "make demo         - regenerate docs/demo.gif from a real run"
+	@echo "make demo          - regenerate docs/demo.gif (terminal) from a real run"
+	@echo "make report-demo   - regenerate docs/report-demo.gif (HTML report) from a real run"
 	@echo "make clean         - remove build artifacts"
 
 install:
@@ -30,6 +31,9 @@ build:
 
 demo:
 	python scripts/make_demo.py
+
+report-demo:
+	python scripts/make_report_demo.py
 
 clean:
 	rm -rf build dist *.egg-info .pytest_cache .ruff_cache .coverage htmlcov

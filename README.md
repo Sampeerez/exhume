@@ -21,17 +21,15 @@ Sensitive-data discovery and verification for security audits and pentests.
 
 ## Why Exhume
 
-- 📂 **Reads everything** — PDF, Office docs, e-mails, images (OCR), nested archives, executables,
-  and **databases from the inside** (SQLite, dBase, MongoDB dumps, Access — every row and column,
-  not just table names).
-- ✅ **Tells real from fake** — a card, IBAN, DNI/IP that only *looks* right is checked (checksum,
-  reachability) and, for anything still ambiguous, read in context by a **local AI**.
-- 🔑 **Proves it, not just finds it** — live credentials are tested against the real provider API
-  (AWS, GitHub, GitLab, Slack, Stripe…), so you know which ones actually work.
-- 🧮 **One value, one entry** — a password pasted into 30 files is one finding with every location,
-  not 30 near-identical rows.
-- 🔒 **100% local** — scans, checks and AI judgments never leave your machine. See
-  [Privacy](#privacy).
+- **Reads everything**: PDF, Office docs, e-mails, images (OCR), nested archives, executables, and
+  databases from the inside — SQLite, dBase, MongoDB dumps, Access — every row and column, not just
+  table names.
+- **Checks what it finds**: a card, IBAN, DNI or IP that only looks right gets its checksum or
+  reachability verified, and anything still ambiguous gets read in context by a local AI.
+- **Verifies credentials for real**: live keys and tokens are tested against the actual provider
+  API (AWS, GitHub, GitLab, Slack, Stripe…), so a report says which ones genuinely work.
+- **Stays on your machine**: scanning, checking and the AI judging it all never leave your laptop —
+  see [Privacy](#privacy).
 
 ## Install
 
@@ -83,13 +81,16 @@ Run `exhume --help` for the full list. Exit code is `1` when a High/Critical fin
 
 ## The report
 
-- **One row per value**, with a `×N` badge and every location it was found in.
+![Exhume report walkthrough](docs/report-demo.gif)
+
+- **One row per value**, with a `×N` badge and every location it was found in — a password pasted
+  into 30 files is one finding, not 30 near-identical rows.
 - **Filter by severity, detector or text** — the detector list always matches what's actually
   showing, so you never pick a filter that turns up nothing.
-- **Real vs. noise** — invalid matches and AI-flagged false positives are hidden by default, one
+- **Real vs. noise**: invalid matches and AI-flagged false positives are hidden by default, one
   click away from view.
 - **Dismiss** anything yourself, with an undo, and export a reviewed CSV when you're done.
-- **📷 Report mode** — censors values, hides every control: ready for a client screenshot.
+- **Report mode**: censors values and hides every control, ready for a client screenshot.
 - **Assets** as collapsible folder trees, with an AI-written risk note on every sensitive database.
 
 ## Privacy
@@ -142,7 +143,7 @@ git clone https://github.com/Sampeerez/exhume && cd exhume
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[full]"   # or just -e . — extras still auto-install as needed
 
-make test   make lint   make demo   # pytest · ruff · regenerate docs/demo.gif
+make test   make lint   make demo   make report-demo   # pytest · ruff · regenerate the two GIFs
 ```
 
 ```
