@@ -462,6 +462,29 @@ def _parse(answer: str) -> str | None:
     return None
 
 
+# A label sitting right next to the value, on its own matched line, is a stronger signal than
+# anything the model infers from the surrounding noise — an explicit "IP=10.192.200.30" inside a
+# verbose state-machine trace ("> OnQueryDeviceInfoConfirmation", "< HandleQueryDeviceInfo...") was
+# measured to confuse the model into FALSE (87%+ confidence) purely from that unrelated clutter,
+# despite the label being right there. Checked deterministically, on the matched line only (not the
+# whole block, so an unrelated label two lines away doesn't count), before ever asking the model —
+# this also saves a call for what is usually the easiest, most common real case.
+_STRONG_LABEL = {
+    "ip": re.compile(r"(?i)\b(?:ip|ipv4|ipv6|ip\s*address|direcci[oó]n\s*ip|host(?:name)?|"
+                     r"servidor|server)\b\s*[:=]"),
+    "id": re.compile(r"(?i)\b(?:dni|nif|nie|cliente|titular|customer)\b\s*[:=]"),
+}
+
+
+def _own_line(f: Finding) -> str:
+    return next((t for n, t in (f.context_block or []) if n == f.line), f.context or "")
+
+
+def _has_strong_label(f: Finding) -> bool:
+    pat = _STRONG_LABEL.get(_kind(f))
+    return bool(pat and pat.search(_own_line(f)))
+
+
 def _ctx_key(f: Finding) -> tuple:
     return (f.detector, _DIGITS.sub("#", f.context or "")[:160], os.path.splitext(f.path)[1].lower())
 
@@ -474,8 +497,8 @@ def _label(f: Finding, verdict: str, how: str) -> None:
 def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
     """Judge ambiguous findings in place. Returns counters for reporting."""
     cand = [f for r in results for f in r.findings if _is_judged(f)]
-    stats = {"candidates": len(cand), "asked": 0, "cached": 0, "real": 0, "false": 0, "inherited": 0,
-             "skipped": 0}
+    stats = {"candidates": len(cand), "asked": 0, "cached": 0, "labeled": 0, "real": 0, "false": 0,
+             "inherited": 0, "skipped": 0}
     if not cand:
         return stats
     # most severe / most relevant first so the call budget is spent where it matters
@@ -495,6 +518,11 @@ def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
         hit = by_value.get(k1) or by_ctx.get(k2)
         if hit:
             return hit
+        if _has_strong_label(f):
+            stats["labeled"] += 1
+            by_value[k1] = by_ctx[k2] = "real"
+            _label(f, "real", "explicit label on its own line (e.g. IP=/DNI=) — not sent to the model")
+            return "real"
         old = vcache.get(f)
         if old:
             stats["cached"] += 1
@@ -522,7 +550,8 @@ def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
         while idx < len(items) and idx < limit:
             v = ask(items[idx])
             if v:
-                _label(items[idx], v, f"judged by {name}")
+                if items[idx].ai_verdict is None:
+                    _label(items[idx], v, f"judged by {name}")
                 stats[v] += 1
                 verdicts.append(v)
             else:
@@ -533,15 +562,21 @@ def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
             continue
         if verdicts and len(set(verdicts)) == 1 and len(verdicts) >= _SAMPLE_BEFORE_PROPAGATE:
             for f in rest:      # homogeneous group: inherit (and still check cached identical values)
-                v = by_value.get((f.detector, f.secret)) or verdicts[0]
-                _label(f, v, f"same as {len(verdicts)} sampled matches in this file ({name})")
+                if _has_strong_label(f):
+                    stats["labeled"] += 1
+                    _label(f, "real", "explicit label on its own line (e.g. IP=/DNI=) — not sent to the model")
+                    v = "real"
+                else:
+                    v = by_value.get((f.detector, f.secret)) or verdicts[0]
+                    _label(f, v, f"same as {len(verdicts)} sampled matches in this file ({name})")
                 stats["inherited"] += 1
                 stats[v] += 1
         else:                   # mixed group: judge individually up to the cap
             for f in rest[:max(0, _GROUP_HARD_CAP - idx)]:
                 v = ask(f)
                 if v:
-                    _label(f, v, f"judged by {name}")
+                    if f.ai_verdict is None:
+                        _label(f, v, f"judged by {name}")
                     stats[v] += 1
                 else:
                     stats["skipped"] += 1

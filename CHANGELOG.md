@@ -27,6 +27,18 @@ All notable versions of Exhume.
   scored 0.999+, so there was no reason to hide a borderline, genuinely uncertain match — it now
   defaults to shown.
 
+### Fixed (AI judging accuracy, round 2)
+- **An explicitly labelled value could still be judged false by the model**, found from a real scan:
+  `[I0]HandleQueryDeviceInfoConfirmation - !InitializingOAS.  Updating IPInfo, privateData =
+  TOD=7,IP=10.192.200.30,RAS=0,CS=50613` was marked a false positive (87%+ confidence) despite the
+  explicit `IP=` label, purely because of the surrounding verbose call-trace noise. A label right
+  next to the value, on its own matched line, is a more reliable signal than anything inferred from
+  context — `ai_filter._has_strong_label` (IP/host/server labels; DNI/NIE/CLIENTE labels) now
+  short-circuits straight to REAL *without ever asking the model*, checked before the cache so it
+  also overrides any stale cached FALSE verdict from before this fix. This also resolves the
+  inconsistent NIE judging reported earlier (a `CLIENTE: Y5799882D`-style line now always matches),
+  and saves a model call for what's usually the easiest, most common real case.
+
 ### Fixed (AI judging accuracy)
 Found and fixed three real false-verdict causes by reproducing an actual scan result end to end,
 then re-validated with a 16-case regression battery covering every detector the AI judges (all pass):

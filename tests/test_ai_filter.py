@@ -184,3 +184,45 @@ def test_ipv6_and_phone_are_judged():
     assert ai_filter._is_judged(f_ip6)
     f_phone = next(f for f in scan_text("Móvil: 612345678", 3.5) if f.detector == "Phone number")
     assert ai_filter._is_judged(f_phone)
+
+
+def test_explicit_label_bypasses_the_model_entirely():
+    """A value explicitly labelled on its own line (IP=, DNI:, CLIENTE:) is trusted outright — this
+    is the exact bug a real scan showed: a verbose log line ("[I0]HandleQueryDeviceInfoConfirmation
+    ... IP=10.192.200.30,RAS=0") confused the model into FALSE despite the explicit "IP=" label."""
+
+    class BrokenEngine:
+        """Always wrong — proves the label short-circuit never reaches the model at all."""
+        name = "broken"
+
+        def ask(self, system, user, shots=()):
+            raise AssertionError("a strongly-labelled match must never be sent to the model")
+
+    text = ("11-10-2023 06:22:38.648 [I0]OnBackInService\n"
+           "11-10-2023 06:22:38.648 [I0]HandleQueryDeviceInfoConfirmation - !InitializingOAS.  "
+           "Updating IPInfo, privateData = TOD=7,IP=10.192.200.30,RAS=0,CS=50613\n"
+           "11-10-2023 06:22:38.650 [I0]< OnQueryDeviceInfoConfirmation")
+    f = next(x for x in scan_text(text, 3.5) if x.detector == "Private IP (RFC1918)")
+    r = FileResult(path="Agent.log", name="Agent.log", ext=".log", size=1, findings=[f])
+    stats = ai_filter.judge([r], BrokenEngine())
+    assert f.ai_verdict == "real"
+    assert "not sent to the model" in f.ai_note
+    assert stats["labeled"] == 1 and stats["asked"] == 0
+
+
+def test_strong_label_detects_ip_and_id_keywords():
+    f_ip = next(x for x in scan_text("IP Address: 10.1.1.5", 3.5) if x.detector == "Private IP (RFC1918)")
+    assert ai_filter._has_strong_label(f_ip)
+    f_dni = next(x for x in scan_text("DNI: 12345678Z", 3.5) if x.detector == "Spanish DNI/NIF")
+    assert ai_filter._has_strong_label(f_dni)
+    f_cliente = next(x for x in scan_text("CLIENTE: Y5799882D", 3.5) if x.detector == "Spanish NIE")
+    assert ai_filter._has_strong_label(f_cliente)
+
+
+def test_no_strong_label_falls_through_to_the_model():
+    f = next(x for x in scan_text("3.2.2.1 Seguridad en el almacén", 3.5) if x.detector == "Public IPv4")
+    assert not ai_filter._has_strong_label(f)
+    r = FileResult(path="a.pdf", name="a.pdf", ext=".pdf", size=1, findings=[f])
+    stats = ai_filter.judge([r], FakeEngine())
+    assert stats["labeled"] == 0 and stats["asked"] == 1
+    assert f.ai_verdict == "false"
