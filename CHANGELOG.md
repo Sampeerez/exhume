@@ -5,6 +5,17 @@ All notable versions of Exhume.
 ## [Unreleased]
 
 ### Fixed
+- **A globally-installed Exhume (`pipx install`, `uv tool install`) could not auto-install anything:
+  no optional extras, no local AI.** Tools like pipx and uv deliberately strip `pip` out of the
+  virtual environment after installing into it, so `python -m pip install ...` failed immediately
+  with "No module named pip" — which surfaced as every extra staying "unavailable" and a misleading
+  "needs a C/C++ toolchain" message for the AI runtime, even on a machine that has one. Exhume now
+  re-bootstraps pip on its own via the standard library's `ensurepip` before any install attempt
+  (`deps.ensure_pip`), so self-install works the same whether it's in a dev venv, installed with
+  pipx, or anything else. Verified end to end: a fresh `pipx install` now auto-installs every extra
+  (PDF/Office/archives/OCR/SMB/S3/Mongo) and the full local AI runtime + model on first use, with no
+  `[full]` extra and no manual `pip install` ever needed. The quick-start instructions now lead with
+  `pipx install` as the way to get a global `exhume` command without activating a venv.
 - **Private IP addresses were wrongly marked "invalid" and hidden by default.** The network check
   probes from the scanning machine, which is normally OUTSIDE the target's internal network, so a
   private address (RFC1918) or link-local one almost never responds — that proved nothing about

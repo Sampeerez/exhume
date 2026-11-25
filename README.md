@@ -41,28 +41,42 @@ private keys, PII (cards, IBAN, DNI/NIE, SSN), IPs, URLs and connection strings.
 
 ## Quick start
 
+Install it once as a global command with [pipx](https://pipx.pypa.io) — no venv to activate, `exhume` just
+works from any directory, in any terminal, from then on:
+
 ```bash
-git clone https://github.com/Sampeerez/exhume && cd exhume
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[full]"
+pipx install "git+https://github.com/Sampeerez/exhume"
 
 exhume /path/to/target        # that's it: scan → HTML report opens in your browser
 ```
 
-No flags needed. Exhume writes `exhume_report.html` (interactive) and `exhume_report.csv` (every finding).
+No `[full]`, no extra flags: every optional piece (PDF/Office readers, archive formats, OCR, SMB/S3,
+MongoDB dumps, and the local AI runtime) **installs itself the first time it's actually needed** —
+including inside the isolated environment pipx creates, where plain `pip` isn't normally available
+(Exhume re-bootstraps it on its own via the standard library's `ensurepip`). Exhume writes
+`exhume_report.html` (interactive) and `exhume_report.csv` (every finding) next to where you run it.
 
-**First run:** the local AI installs itself — `llama-cpp-python` plus a 2.1 GB open model (Qwen2.5-3B) in
-`~/.cache/exhume`. Later runs reuse it, and remember earlier verdicts. Scanned data never leaves your machine
-(only that one-time model download uses the network). Prefer to skip it? `--no-ai`.
+**First run:** the local AI installs itself too — `llama-cpp-python` plus a 2.1 GB open model
+(Qwen2.5-3B) cached in `~/.cache/exhume`, shared by every install method and reused across runs
+(verdicts are remembered too). Scanned data never leaves your machine — only that one-time model
+download uses the network. Prefer to skip it? `--no-ai`.
 
 <details>
 <summary>Requirements & other ways to install</summary>
 
-- Python 3.9+, macOS or Linux. OCR needs the `tesseract` binary (`brew install tesseract` / `apt install tesseract-ocr`).
+- Python 3.9+, macOS or Linux. OCR needs the `tesseract` binary (`brew install tesseract` / `apt install tesseract-ocr`);
+  reading Access databases needs `mdbtools` (`brew install mdbtools` / `apt install mdbtools`) — both optional.
 - The AI runtime ships as a prebuilt wheel for common platforms; otherwise it needs a C/C++ toolchain + CMake. If it can't
   be installed, Exhume falls back to a running [Ollama](https://ollama.com) or just reports matches unjudged.
-- Core only (standard library, no extras): `pip install -e .` — extras auto-install when first needed (`--no-autoinstall` to forbid).
-- **Docker** (everything bundled; keep the model between runs with a volume):
+- **From a clone, for development** (editable, so code changes apply immediately):
+  ```bash
+  git clone https://github.com/Sampeerez/exhume && cd exhume
+  python3 -m venv .venv && source .venv/bin/activate
+  pip install -e .          # core only — extras still auto-install as needed
+  # or: pip install -e ".[full]"   to pre-install every extra up front (CI, offline use, etc.)
+  ```
+  `--no-autoinstall` turns off the self-install behavior entirely, for either method above.
+- **Docker** (everything bundled, `mdbtools` included; keep the model between runs with a volume):
   ```bash
   docker build -t exhume .
   docker run --rm -v exhume-cache:/home/auditor/.cache/exhume -v "$PWD:/scan" exhume /scan --no-open

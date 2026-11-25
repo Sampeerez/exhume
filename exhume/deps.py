@@ -39,8 +39,44 @@ def _module_available(module: str) -> bool:
         return False
 
 
+_pip_ready: bool | None = None
+
+
+def _pip_available() -> bool:
+    try:
+        return subprocess.run([sys.executable, "-m", "pip", "--version"],
+                              capture_output=True, timeout=15).returncode == 0
+    except Exception:
+        return False
+
+
+def ensure_pip() -> bool:
+    """Make sure ``python -m pip`` actually works before trying to use it.
+
+    Tools like pipx and uv deliberately strip pip out of the virtual environment they
+    install a package into (to stop people mutating it directly) — so on a globally
+    installed Exhume, ``python -m pip install ...`` fails with "No module named pip"
+    before it ever gets to download anything, which looks identical to "no internet" or
+    "no compiler". ``ensurepip`` (part of the standard library) re-bootstraps a real pip
+    into the current interpreter in that case; this is cached so it only runs once.
+    """
+    global _pip_ready
+    if _pip_ready is None:
+        _pip_ready = _pip_available()
+    if not _pip_ready:
+        try:
+            subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade"],
+                          capture_output=True, timeout=120)
+        except Exception:
+            pass
+        _pip_ready = _pip_available()
+    return _pip_ready
+
+
 def pip_install(pkg: str, timeout: int = 180) -> bool:
     """Install a package with pip, trying variants for managed environments."""
+    if not ensure_pip():
+        return False
     base = [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", pkg]
     for extra in ([], ["--break-system-packages"], ["--user", "--break-system-packages"]):
         try:

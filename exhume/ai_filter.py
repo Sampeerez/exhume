@@ -280,9 +280,11 @@ def _download(url: str, dest: Path) -> bool:
 def _install_llama_cpp() -> bool:
     import importlib
 
-    from .deps import pip_install
+    from .deps import ensure_pip, pip_install
     eprint(f"{Colors.CY}Installing the local AI runtime (llama-cpp-python, first run only; this can "
            f"take a few minutes)...{Colors.END}")
+    if not ensure_pip():
+        return False
     index = "metal" if sys.platform == "darwin" else "cpu"
     ok = _pip_with_index(index) or pip_install("llama-cpp-python", timeout=1800)
     importlib.invalidate_caches()
@@ -312,10 +314,12 @@ def load_engine(autoinstall: bool = True, gguf: str = "", ollama_url: str = "",
     except Exception:
         have = False
     if not have and autoinstall:
+        from .deps import _pip_available
         have = _install_llama_cpp()
         if not have:
-            eprint(f"{Colors.Y}Could not install llama-cpp-python (needs a C/C++ toolchain on this "
-                   f"Python); trying Ollama instead.{Colors.END}")
+            why = ("pip is unavailable in this Python and couldn't be bootstrapped" if not _pip_available()
+                  else "no prebuilt wheel and no C/C++ toolchain on this Python")
+            eprint(f"{Colors.Y}Could not install llama-cpp-python ({why}); trying Ollama instead.{Colors.END}")
     if have:
         path = Path(gguf) if gguf else cache_dir() / MODEL_FILE
         if not path.exists() or path.stat().st_size < MODEL_MIN_BYTES:
