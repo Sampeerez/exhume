@@ -27,6 +27,20 @@ All notable versions of Exhume.
   scored 0.999+, so there was no reason to hide a borderline, genuinely uncertain match — it now
   defaults to shown.
 
+### Fixed
+- README documented `pipx upgrade exhume` for getting updates, but that only works for package-index
+  installs — for a `git+https://...` spec (what the quick start uses) it silently does nothing and
+  reports "unchanged". The real way to pick up a newer commit is `pipx install --force "git+..."`;
+  the README now says so.
+
+### Evaluated, not changed
+- Tried swapping the bundled model for Qwen2.5-7B-Instruct (Q4_K_M) to see if a bigger local model
+  would judge more accurately. On the same regression battery it scored identically to the 3B model
+  (14/15) — including failing the exact same case — while taking ~2.3x longer per call (1.83s vs
+  0.80s). Kept Qwen2.5-3B as the default: no accuracy gain would have come with a real cost to scan
+  time on jobs with many ambiguous matches. `--ai-gguf` still lets anyone drop in whatever model
+  they prefer.
+
 ### Fixed (AI judging accuracy, round 2)
 - **An explicitly labelled value could still be judged false by the model**, found from a real scan:
   `[I0]HandleQueryDeviceInfoConfirmation - !InitializingOAS.  Updating IPInfo, privateData =

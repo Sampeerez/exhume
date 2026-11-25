@@ -41,6 +41,14 @@ No `pipx`? `pip install pipx` (or `brew install pipx`), then rerun the line abov
 install — everything else (document/archive readers, OCR, the local AI model) sets itself up the
 first time it's actually needed.
 
+To get a newer version later: pipx won't do this on its own, and — because this installs straight
+from GitHub rather than a package index — `pipx upgrade exhume` won't either (it'll say "unchanged").
+Reinstall it instead:
+
+```bash
+pipx install --force "git+https://github.com/Sampeerez/exhume"
+```
+
 ## Use
 
 ```bash
