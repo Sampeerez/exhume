@@ -61,8 +61,18 @@ including inside the isolated environment pipx creates, where plain `pip` isn't 
 
 **First run:** the local AI installs itself too — `llama-cpp-python` plus a 2.1 GB open model
 (Qwen2.5-3B) cached in `~/.cache/exhume`, shared by every install method and reused across runs
-(verdicts are remembered too). Scanned data never leaves your machine — only that one-time model
-download uses the network. Prefer to skip it? `--no-ai`.
+(verdicts are remembered too). Prefer to skip it? `--no-ai`.
+
+**Data privacy, enforced, not just promised:** your scanned data is for the auditor's eyes only —
+the output files (HTML/CSV/JSON/SARIF) are written locally and Exhume never uploads them anywhere.
+The bundled AI runs in-process on your machine (no socket involved at all); the only thing that ever
+touches the network for it is the one-time model download from Hugging Face, before any scanning
+happens. If that bundled model can't run and Exhume falls back to Ollama, `--ai-url` is checked
+against the loopback interface (127.0.0.1/::1/"localhost") **before any data is sent** — a URL that
+resolves anywhere else is refused outright, not silently used, so pointing it at a remote host
+disables the AI rather than leaking findings to it. See [`exhume/ai.py`](exhume/ai.py)'s
+`is_local_url` for the exact check, and [`tests/test_ai.py`](tests/test_ai.py) for the tests that
+pin this behavior down.
 
 <details>
 <summary>Requirements & other ways to install</summary>

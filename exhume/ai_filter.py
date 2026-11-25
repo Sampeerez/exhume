@@ -227,6 +227,13 @@ class LlamaEngine:
 
 class OllamaEngine:
     def __init__(self, url: str, model: str):
+        # Belt-and-suspenders: callers are expected to have already gone through
+        # ai.available(), which rejects a non-local URL before this is ever constructed, but
+        # this engine is the one thing in the whole codebase that can put audit data on a
+        # socket, so it refuses to exist pointed anywhere but this machine, full stop.
+        from .ai import is_local_url
+        if not is_local_url(url):
+            raise ValueError(f"refusing to use a non-local Ollama URL: {url!r}")
         self.url, self.model = url.rstrip("/"), model
         self.name = f"Ollama {model}"
 

@@ -109,5 +109,18 @@ def test_triage_uses_bundled_engine_and_skips_hidden():
     ai_filter.judge(res, FakeEngine())
     out = ai_mod.triage(res, "http://127.0.0.1:1", "", engine=G())
     assert out and out["model"] == "fake"
-    assert "10.1.1.5" in G.prompt or "10.1...1.5" in G.prompt or "10.1" in G.prompt
+    assert "Private IP" in G.prompt           # the real (not hidden) finding is included
     assert "3.2.2.1" not in G.prompt          # hidden (AI-false) findings are not triaged
+    assert "10.1.1.5" not in G.prompt         # the real IP value itself is never sent, only masked
+
+
+def test_ollama_engine_refuses_non_local_url():
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError, match="non-local"):
+        ai_filter.OllamaEngine("http://10.0.0.5:11434", "llama3")
+
+
+def test_ollama_engine_accepts_loopback_url():
+    eng = ai_filter.OllamaEngine("http://127.0.0.1:11434", "llama3")
+    assert eng.url == "http://127.0.0.1:11434"

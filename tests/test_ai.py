@@ -52,7 +52,8 @@ def test_prompt_dedupes_repeated_value_and_mentions_spread():
     results = [FileResult(path="a.txt", name="a.txt", ext=".txt", size=5, findings=[f1]),
               FileResult(path="b.txt", name="b.txt", ext=".txt", size=5, findings=[f2])]
     prompt = ai._build_prompt(results)
-    assert prompt.count("hu...!!") == 1           # reported once, not once per occurrence
+    assert "hunter2hunter2!!" not in prompt       # the real secret never appears, even in context
+    assert prompt.count("a.txt:1") == 1 and "b.txt" not in prompt  # reported once, not per occurrence
     assert "seen in 2 places" in prompt
     assert "2 occurrence" in prompt or "2 occurrence(s)" in prompt
 
@@ -121,3 +122,56 @@ def test_no_findings_guard_leaves_real_findings_alone():
     results = [FileResult(path="a.txt", name="a.txt", ext=".txt", size=5, findings=[f])]
     text = "## Fastest paths to access\n- The real GitHub token.\n"
     assert ai._no_findings_guard(text, results) == text
+
+
+def test_context_is_masked_in_triage_prompt():
+    """The context line can contain the plaintext secret inline (e.g. "password=..."), so masking
+    only the standalone value= field would leak it right back through ctx=; both must be masked."""
+    f = Finding(detector="Credential assignment", severity=Severity.HIGH, line=1,
+                redacted="Su...24", context="db_password = 'Sup3rS3cret!2024' # prod",
+                path="app.config", secret="Sup3rS3cret!2024")
+    results = [FileResult(path="app.config", name="app.config", ext=".config", size=5, findings=[f])]
+    prompt = ai._build_prompt(results)
+    assert "Sup3rS3cret!2024" not in prompt
+    assert "Su...24" in prompt
+    assert "# prod" in prompt  # the rest of the line (non-secret) is preserved
+
+
+def test_is_local_url_accepts_only_loopback(monkeypatch):
+    assert ai.is_local_url("http://127.0.0.1:11434")
+    assert ai.is_local_url("http://localhost:11434")
+    assert ai.is_local_url("http://[::1]:11434")
+    assert not ai.is_local_url("http://10.0.0.5:11434")
+    assert not ai.is_local_url("http://ollama.example.com:11434")
+    assert not ai.is_local_url("not a url at all")
+    assert not ai.is_local_url("")
+
+
+def test_is_local_url_rejects_hostname_resolving_elsewhere(monkeypatch):
+    monkeypatch.setattr(ai.socket, "getaddrinfo",
+                        lambda host, port: [(None, None, None, None, ("93.184.216.34", 0))])
+    assert not ai.is_local_url("http://sneaky.example.com")
+
+
+def test_is_local_url_handles_dns_failure(monkeypatch):
+    def boom(host, port):
+        raise OSError("no such host")
+    monkeypatch.setattr(ai.socket, "getaddrinfo", boom)
+    assert not ai.is_local_url("http://doesnotresolve.invalid")
+
+
+def test_available_refuses_non_local_url_without_any_network_call(monkeypatch):
+    def boom(url, timeout):
+        raise AssertionError("must never contact a non-local URL")
+
+    monkeypatch.setattr(ai, "_get", boom)
+    assert ai.available("http://10.0.0.5:11434") == []
+
+
+def test_triage_refuses_non_local_ollama_url(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("must never contact a non-local URL")
+
+    monkeypatch.setattr(ai, "_get", boom)
+    monkeypatch.setattr(ai, "_post", boom)
+    assert ai.triage(_results(), "http://attacker.example.com:11434", "") is None

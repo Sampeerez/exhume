@@ -4,6 +4,25 @@ All notable versions of Exhume.
 
 ## [Unreleased]
 
+### Security
+- **The "local AI never sends data anywhere" claim is now an enforced check, not just a promise.**
+  Audited every network call the AI code can make and found two real gaps, both fixed:
+  - The triage prompt's context snippet was sent **unmasked** — it can contain the plaintext secret
+    inline (e.g. `password=hunter2hunter2!!`), so masking only the standalone `value=` field, as the
+    code already did, left the same secret sitting right next to it in `ctx=`. Both are masked now
+    (`ai._masked_context`).
+  - Nothing stopped `--ai-url` from pointing at a remote server: if the bundled model couldn't run
+    and the configured URL "happened" to be non-local, Exhume would have talked to it anyway. There
+    is now exactly one choke point, `ai.is_local_url` (used by `ai.available`, which every Ollama
+    code path goes through, plus a second check directly in `OllamaEngine.__init__` as defense in
+    depth): a URL is trusted only when **every** address it resolves to is loopback. A non-local URL
+    disables the AI outright rather than being used — it never gets the chance to receive data.
+  The bundled engine (the default, and what pipx/venv installs self-install) never opens a socket
+  during judging/triage at all; the only network call it makes is the one-time model download from
+  Hugging Face, before any scan data exists. See the README's "Data privacy" note for the full
+  picture, and `tests/test_ai.py` for the tests that pin this down (non-local URLs, DNS tampering,
+  resolution failure, and that the real secret value never appears in a triage prompt).
+
 ### Fixed
 - **A globally-installed Exhume (`pipx install`, `uv tool install`) could not auto-install anything:
   no optional extras, no local AI.** Tools like pipx and uv deliberately strip `pip` out of the

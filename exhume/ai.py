@@ -4,17 +4,27 @@ The regex + entropy + live-verification core is what *finds* and *proves* secret
 a local LLM is only used to *triage and prioritize* what was already found — to
 answer "of these N findings, which are the fastest paths to access, and why".
 
-Privacy: this talks ONLY to a local Ollama instance (default http://localhost:11434)
-and is sent **masked** values, never plaintext secrets. The call bypasses any HTTP
-proxy. If no local model is reachable it silently returns None and the scan is
-unaffected. Enabled by default; disable with --no-ai.
+Privacy, enforced, not just promised:
+- Every value sent in the triage prompt is masked (``f.redacted``), and the surrounding context
+  line has the real secret substituted out of it too — the prompt never contains a plaintext
+  secret, a real card/IBAN number or a live credential, only its masked form and its shape.
+- The only network destination is a local Ollama instance, and :func:`available` REFUSES to even
+  try a URL that doesn't resolve to the loopback interface (127.0.0.0/8 / ::1 / "localhost") — so
+  pointing ``--ai-url`` at a remote host does not leak data, it just disables Ollama. The call also
+  bypasses any configured HTTP proxy, so it can't be silently rerouted off the machine either.
+If no local model is reachable this silently returns None and the scan is unaffected. Enabled by
+default; disable with --no-ai.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 
+from .console import Colors, eprint
 from .models import FileResult, Verified, group_findings, group_sort_key
 
 _CONNECT_TIMEOUT = 2
@@ -50,8 +60,45 @@ def _post(url: str, body: dict, timeout: int):
         return None, b""
 
 
+def is_local_url(url: str) -> bool:
+    """True only if *url*'s host resolves exclusively to a loopback address.
+
+    This is the one technical control standing between "local AI" and "data leaves the
+    machine": every caller that might hand real finding data to an Ollama server (this
+    module's own triage prompt, and :mod:`exhume.ai_filter`'s engine fallback) goes through
+    :func:`available`, which calls this first. A URL is trusted only when every address it
+    resolves to is loopback — a single public/LAN address anywhere in the result is enough
+    to reject it, so a DNS name that resolves to a mix of local and remote addresses is
+    refused rather than guessed at.
+    """
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        return False
+    if not host:
+        return False
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        pass  # not a literal IP — it's a hostname, resolve it below
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return False
+    return bool(infos) and all(ipaddress.ip_address(info[4][0]).is_loopback for info in infos)
+
+
 def available(ai_url: str) -> list[str]:
-    """Return the list of local Ollama models, or [] if unreachable."""
+    """Return the list of local Ollama models, or [] if unreachable OR *ai_url* isn't local.
+
+    Refusing a non-local URL here (rather than at the call site) protects every caller —
+    this module's own :func:`triage` and :mod:`exhume.ai_filter`'s Ollama fallback alike —
+    with a single check: no finding data is ever sent anywhere but this machine.
+    """
+    if not is_local_url(ai_url):
+        eprint(f"{Colors.Y}--ai-url '{ai_url}' is not local; refusing to send audit data to it. "
+               f"The local AI needs an Ollama instance on this machine (loopback only).{Colors.END}")
+        return []
     st, raw = _get(ai_url.rstrip("/") + "/api/tags", _CONNECT_TIMEOUT)
     if st != 200:
         return []
@@ -59,6 +106,16 @@ def available(ai_url: str) -> list[str]:
         return [m["name"] for m in json.loads(raw).get("models", [])]
     except Exception:
         return []
+
+
+def _masked_context(f) -> str:
+    """The surrounding line with the real secret value substituted out of it — the context
+    alone can contain the plaintext (e.g. "password=hunter2hunter2!!"), so masking only the
+    standalone `value=` field and leaving this raw would defeat the point entirely."""
+    ctx = (f.context or "").strip()[:160]
+    if f.secret and f.secret in ctx:
+        ctx = ctx.replace(f.secret, f.redacted)
+    return ctx
 
 
 def _build_prompt(results: list[FileResult]) -> str:
@@ -70,7 +127,7 @@ def _build_prompt(results: list[FileResult]) -> str:
     for i, g in enumerate(groups[:_MAX_FINDINGS], 1):
         f = g.rep
         v = {Verified.LIVE: "VERIFIED-LIVE", Verified.DEAD: "dead"}.get(f.verified, "unverified")
-        ctx = (f.context or "").strip()[:120]
+        ctx = _masked_context(f)
         spread = f" (seen in {g.count} places)" if g.count > 1 else ""
         lines.append(f"{i}. [{f.severity.label}][{v}] {f.detector} @ {f.path}:{f.line}{spread} "
                      f"value={f.redacted} ctx={ctx!r}")
