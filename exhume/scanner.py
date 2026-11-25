@@ -22,12 +22,11 @@ from .console import Colors, eprint
 from .detectors import aws_secret_candidates, cached_rules, scan_text
 from .extractors import (
     ExtractionBudget,
+    db_engine_for,
     extract,
     extract_document,
     ocr_image,
     read_textish,
-    sqlite_peek,
-    sqlite_scan_contents,
 )
 from .extractors.magic import (
     BINARY_SKIP,
@@ -46,9 +45,10 @@ from .verify import VERIFIERS, verify_aws_pair, verify_single
 from .verify.network import NETWORK_VERIFIERS, raise_fd_limit
 
 _SQLITE_EXT = {".db", ".sqlite", ".sqlite3", ".db3", ".sqlitedb"}
-# Proprietary binary database formats we have no reader for. We can't look at their
-# structure, so they're at least string-scanned like an executable (--strings behavior).
-_OPAQUE_DB_EXT = {".mdb", ".accdb", ".frm", ".myd", ".ibd", ".dbf", ".ndf", ".mdf", ".ldf"}
+# Database formats with no (or no available) structural reader — SQL Server, MySQL's own storage
+# engine, Oracle/DB2/Firebird data files, Redis dumps, and Access when mdbtools isn't installed.
+# We can't look at their structure, so they're at least string-scanned (--strings behavior).
+_OPAQUE_DB_EXT = {".mdb", ".accdb", ".frm", ".myd", ".ibd", ".ndf", ".mdf", ".ldf", ".rdb"}
 
 # Worker config: set ONCE per process/thread (pool initializer), avoiding
 # re-serializing Config on each of the thousands of tasks.
@@ -124,14 +124,16 @@ def _bump(counter: dict | None, key: str) -> None:
         counter[key] = counter.get(key, 0) + 1
 
 
-def _scan_sqlite(real_path: str, display_path: str, cfg: Config, allow, extra_detectors):
-    """Scan EVERY row/column of a SQLite database for secrets, not just column names.
+def _scan_database(scan_fn, real_path: str, display_path: str, cfg: Config, allow, extra_detectors):
+    """Scan EVERY row/column of a database for secrets, not just column names.
 
-    Returns (findings, note, blobs, scan.ok). *blobs* are BLOB cells that look like an
-    embedded file (another database, a document, an archive, a key...), for the caller
-    to extract and scan recursively, exactly like a nested archive.
+    *scan_fn* is any of the per-engine ``scan_contents`` functions (SQLite, DBF, MongoDB dump,
+    Access...) — they all return the same :class:`~exhume.extractors.db_scan.DBScan` shape.
+    Returns (findings, note, blobs, ok). *blobs* are BLOB/binary cells that look like an embedded
+    file (another database, a document, an archive, a key...), for the caller to extract and scan
+    recursively, exactly like a nested archive.
     """
-    scan = sqlite_scan_contents(real_path, max_rows=cfg.db_max_rows)
+    scan = scan_fn(real_path, max_rows=cfg.db_max_rows)
     if not scan.ok:
         return [], None, [], False
     text = "\n".join(scan.lines)
@@ -200,12 +202,14 @@ def process_entry(real_path: str, display_path: str, cfg: Config,
     rec = FileResult(path=display_path, name=name, ext=ext, size=size, tags=tags)
     too_big = size > cfg.max_bytes
 
-    is_sqlite = "database" in tags and (magic_kind == "database" or ext in _SQLITE_EXT)
-    if is_sqlite and cfg.db_peek and not too_big:
-        rec.db_info = sqlite_peek(real_path)
-        findings, note, blobs, ok = _scan_sqlite(real_path, display_path, cfg, allow, extra_detectors)
+    db_engine = db_engine_for(ext, magic_kind) if "database" in tags and cfg.db_peek else None
+    if db_engine and not too_big:
+        peek_fn, scan_fn, label = db_engine
+        rec.db_info = peek_fn(real_path)
+        findings, note, blobs, ok = _scan_database(scan_fn, real_path, display_path, cfg, allow,
+                                                    extra_detectors)
         if ok:
-            rec.method = "sqlite-content"
+            rec.method = label
             rec.note = note
             rec.findings = findings
             _bump(counter, "scanned")
@@ -215,12 +219,12 @@ def process_entry(real_path: str, display_path: str, cfg: Config,
             if blobs and depth < cfg.max_depth:
                 results.extend(_scan_db_blobs(blobs, display_path, cfg, depth, budget, counter))
             return results
-        # Could not even open it as SQLite (encrypted/corrupt): fall through to the
-        # generic opaque-binary handling below, same as any other unreadable database.
+        # Could not actually read it (encrypted/corrupt/empty): fall through to the generic
+        # opaque-binary handling below, same as any other unreadable database.
 
-    # Proprietary binary database we can't parse structurally: string-scan it like a
-    # binary, so plaintext secrets embedded in it are still found.
-    force_db_strings = "database" in tags and not too_big and (ext in _OPAQUE_DB_EXT or (is_sqlite and cfg.db_peek))
+    # Database we have no (working) structural reader for: string-scan it like a binary, so
+    # plaintext secrets embedded in it are still found even though we can't parse its format.
+    force_db_strings = "database" in tags and not too_big and (ext in _OPAQUE_DB_EXT or db_engine)
 
     # Archive -> extract and recurse
     is_archive = "archive" in tags

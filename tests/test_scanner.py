@@ -154,3 +154,42 @@ def test_sqlite_blob_with_embedded_secret_is_scanned_recursively(tmp_path, cfg):
     nested = [r for r in results if " ::> " in r.path and "files.data" in r.path]
     assert nested, [r.path for r in results]
     assert any(f.detector == "GitHub token" for r in nested for f in r.findings)
+
+
+def test_dbf_content_is_scanned_through_process_entry(tmp_path, cfg):
+    from exhume.scanner import process_entry
+    from tests.test_db_engines import _write_dbf
+
+    p = tmp_path / "clientes.dbf"
+    _write_dbf(p, [("ID", "N", 6), ("EMAIL", "C", 40), ("PASSWORD", "C", 30)],
+              [(1, "alice@corp.com", "hunter2hunter2!!")])
+    results = process_entry(str(p), str(p), cfg)
+    rec = next(r for r in results if r.path == str(p))
+    assert rec.method == "dbf-content"
+    assert any(f.detector == "Email" for f in rec.findings)
+    assert any(f.detector == "Credential assignment" for f in rec.findings)
+
+
+def test_bson_content_is_scanned_through_process_entry(tmp_path, cfg):
+    pytest = __import__("pytest")
+    bson = pytest.importorskip("bson")
+    from exhume.scanner import process_entry
+
+    p = tmp_path / "users.bson"
+    with open(p, "wb") as f:
+        f.write(bson.encode({"_id": 1, "email": "alice@corp.com", "password": "hunter2hunter2!!"}))
+    results = process_entry(str(p), str(p), cfg)
+    rec = next(r for r in results if r.path == str(p))
+    assert rec.method == "bson-content"
+    assert any(f.detector == "Email" for f in rec.findings)
+
+
+def test_unparseable_database_falls_back_to_string_scan(tmp_path, cfg):
+    from exhume.scanner import process_entry
+
+    p = tmp_path / "legacy.mdf"   # SQL Server data file: no structural reader exists
+    p.write_bytes(b"\x00\x01\x02" * 50 + b"password=hunter2hunter2!!\x00" + b"\x03" * 50)
+    results = process_entry(str(p), str(p), cfg)
+    rec = next(r for r in results if r.path == str(p))
+    assert rec.method == "strings"
+    assert any(f.secret == "hunter2hunter2!!" for f in rec.findings)

@@ -5,7 +5,7 @@ import os
 import re
 
 EXT_DB = {".db", ".sqlite", ".sqlite3", ".db3", ".mdb", ".accdb", ".sql", ".dump", ".bak",
-          ".sqlitedb", ".frm", ".myd", ".ibd", ".dbf", ".ndf", ".mdf", ".ldf"}
+          ".sqlitedb", ".frm", ".myd", ".ibd", ".dbf", ".ndf", ".mdf", ".ldf", ".bson", ".rdb"}
 EXT_EXEC = {".exe", ".dll", ".so", ".bin", ".msi", ".bat", ".cmd", ".ps1", ".sh", ".com",
             ".scr", ".apk", ".jar", ".app", ".deb", ".rpm", ".elf", ".o", ".dylib"}
 EXT_KEY = {".pem", ".key", ".pfx", ".p12", ".crt", ".cer", ".keystore", ".jks", ".ppk",
@@ -53,6 +53,7 @@ DEFAULT_SKIP_DIRS = {"node_modules", "__pycache__", ".venv", "venv", "env", ".id
 _MAGIC = [
     (b"MZ", "executable"), (b"\x7fELF", "executable"),
     (b"SQLite format 3\x00", "database"),
+    (b"REDIS", "redis_rdb"),  # recognized so a renamed dump.rdb is still tagged "database"
     (b"-----BEGIN", "key_material"), (b"PuTTY-User-Key", "key_material"),
     (b"%PDF", "pdf_document"), (b"PK\x03\x04", "zip"),
     (b"Rar!\x1a\x07", "rar"), (b"7z\xbc\xaf\x27\x1c", "7z"),
@@ -109,7 +110,7 @@ def classify(name: str, ext: str, magic_kind: str | None) -> list[str]:
     tags: list[str] = []
     if is_noise_name(name):
         return tags
-    if ext in EXT_DB or magic_kind == "database":
+    if ext in EXT_DB or magic_kind in ("database", "redis_rdb"):
         tags.append(TAG_DATABASE)
     if ext in EXT_EXEC or magic_kind == "executable":
         tags.append(TAG_EXECUTABLE)

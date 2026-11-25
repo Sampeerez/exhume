@@ -7,9 +7,10 @@ FROM python:3.12-slim AS base
 #  - git            : full Git-history scanning
 #  - tesseract-ocr  : OCR of images (on by default)
 #  - libmagic1      : robust file typing for some extractors
+#  - mdbtools       : reads Microsoft Access databases (.mdb/.accdb) content, without MS Access
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        git tesseract-ocr libmagic1 \
+        git tesseract-ocr libmagic1 mdbtools \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/exhume

@@ -5,13 +5,20 @@ All notable versions of Exhume.
 ## [Unreleased]
 
 ### Added
-- **Databases are scanned inside, not just peeked at.** Every row and column of a SQLite database
-  (any extension, detected by content) is read and run through the full detector engine, so
-  credentials, emails, IPs and PII hidden *in the data* are found, not just suspicious column names.
-  A BLOB cell that looks like an embedded file (another database, a document, an archive, a key...)
-  is extracted and scanned recursively, exactly like a nested archive, sharing the same extraction
-  budget. Proprietary binary formats Exhume can't parse (`.mdb`, `.accdb`, `.frm`, `.myd`, `.ibd`,
-  `.dbf`, `.mdf`, `.ldf`, `.ndf`) are at least string-scanned instead of skipped outright.
+- **Databases are scanned inside, not just peeked at — for four engines now, not only SQLite.**
+  Every row and column is read and run through the full detector engine (not just column names) for:
+  - **SQLite** (any extension, detected by content).
+  - **dBase/xBase** `.dbf` (built-in reader, no dependency).
+  - **MongoDB dumps** `.bson` (via `pymongo`'s `bson` module, auto-installed; nested documents and
+    arrays are flattened, e.g. `profile.aws_key=...`).
+  - **MS Access** `.mdb`/`.accdb`, when the optional `mdbtools` system tool is installed (same
+    soft-dependency pattern as `tesseract` for OCR; bundled in the Docker image).
+  A BLOB/binary cell that looks like an embedded file (another database, a document, an archive, a
+  key...) is extracted and scanned recursively, exactly like a nested archive, sharing the same
+  extraction budget. Engines with no portable single-file format or no safe way to parse their
+  on-disk pages offline (MySQL's own storage files, SQL Server, Redis dumps, and Access without
+  `mdbtools`) are at least string-scanned instead of skipped outright — see the README's
+  "Database support" table for exactly what's covered.
   New `--db-max-rows` (default 5000) caps rows sampled per table.
 - **The same value is reported once, with every place it was found.** A password, email or key
   pasted into 30 files used to print 30 near-identical lines; it now shows up as one finding with an

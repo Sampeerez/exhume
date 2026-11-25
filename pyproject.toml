@@ -28,10 +28,11 @@ remote = ["impacket", "boto3"]
 ocr = ["pillow", "pytesseract"]
 rules = ["PyYAML"]
 ai = ["llama-cpp-python"]
+databases = ["pymongo"]  # MongoDB dump (.bson) content; SQLite/DBF need no extra; Access uses mdbtools (system tool)
 # Todo de golpe:
 full = [
     "pdfplumber", "python-docx", "openpyxl", "python-pptx", "extract-msg",
-    "py7zr", "rarfile", "impacket", "boto3", "pillow", "pytesseract", "PyYAML",
+    "py7zr", "rarfile", "impacket", "boto3", "pillow", "pytesseract", "PyYAML", "pymongo",
 ]
 dev = ["pytest", "pytest-cov", "ruff"]
 

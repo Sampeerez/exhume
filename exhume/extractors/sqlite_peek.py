@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from dataclasses import dataclass, field
 
+from .db_scan import DBScan
 from .magic import RECURSE_MAGICS, sniff_magic_bytes
 
 SENSITIVE_COL = re.compile(
@@ -57,18 +57,6 @@ def peek(path: str, max_tables: int = 200) -> dict:
     finally:
         con.close()
     return info
-
-
-@dataclass
-class DBScan:
-    """Result of reading a SQLite database's actual row data."""
-    lines: list[str] = field(default_factory=list)               # "column=value", one per cell
-    locations: list[tuple[str, str, int]] = field(default_factory=list)  # (table, column, row) per line
-    blobs: list[tuple[str, str, int, bytes]] = field(default_factory=list)  # embedded-file candidates
-    truncated: bool = False
-    tables_scanned: int = 0
-    rows_scanned: int = 0
-    ok: bool = False          # False means the file could not even be opened as SQLite
 
 
 def scan_contents(path: str, max_tables: int = 100, max_rows: int = 5000,

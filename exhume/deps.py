@@ -23,6 +23,7 @@ OPTIONAL_DEPS = [
     ("rarfile", "rarfile", ".rar archives"),
     ("PyYAML", "yaml", "YAML rules"),
     ("boto3", "boto3", "S3 buckets"),
+    ("pymongo", "bson", "MongoDB dump (.bson) content"),
 ]
 OCR_DEPS = [
     ("pillow", "PIL", "images for OCR"),

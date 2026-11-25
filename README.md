@@ -23,8 +23,12 @@ Sensitive-data discovery and verification for security audits and pentests.
 
 Point it at a folder, an SMB share, a Docker image, an S3 bucket, a Git repo (history included) or a single
 file. Exhume reads **inside** PDF, Word, Excel, PowerPoint, e-mails, images (OCR), nested archives,
-binaries and **databases** (every row/column of a SQLite database is read, not just its column names — a
-BLOB that looks like an embedded file is extracted and scanned too), and reports credentials, tokens,
+binaries and **databases** — every row/column is read, not just column names, for SQLite, dBase (`.dbf`)
+and MongoDB dumps (`.bson`) directly, and for Access (`.mdb`/`.accdb`) when `mdbtools` is installed; a
+BLOB/binary cell that looks like an embedded file is extracted and scanned too. Proprietary engines with
+no portable single-file format (MySQL's own storage files, SQL Server, Oracle, Redis dumps...) are at
+least string-scanned instead of skipped — see [Database support](#database-support) for the full table.
+It reports credentials, tokens,
 private keys, PII (cards, IBAN, DNI/NIE, SSN), IPs, URLs and connection strings. Then it works out
 **which findings are real**, and reports the same value **once** no matter how many files it's in:
 
@@ -112,6 +116,20 @@ An interactive, self-contained HTML dashboard:
 - **Assets** — databases, configs, keys and executables as collapsible folder trees (thumbnail caches and similar noise filtered out), with a one-line **AI risk summary** next to each sensitive database.
 - **Coverage** line: how many files were scanned, skipped or unreadable — so you know nothing was silently missed.
 
+## Database support
+
+| Engine | What Exhume does |
+|---|---|
+| **SQLite** (any extension — detected by content) | Full: every row/column, embedded files inside BLOBs scanned recursively. |
+| **dBase / xBase** (`.dbf`) | Full: every row/column. Built in, no extra install. |
+| **MongoDB dumps** (`.bson`, from `mongodump`) | Full: every document, including nested fields; large binary fields scanned recursively. Needs `pymongo` (auto-installed). |
+| **MS Access** (`.mdb`, `.accdb`) | Full, when [`mdbtools`](https://github.com/mdbtools/mdbtools) is on `PATH` (`brew install mdbtools` / `apt install mdbtools`; bundled in the Docker image). Falls back to string-scanning otherwise. |
+| **Plain-text SQL dumps** (`.sql`, `.dump`, `.bak` that are actually text) | Scanned as text, like any other file — nothing special needed. |
+| **MySQL's own files** (`.frm`/`.myd`/`.ibd`), **SQL Server** (`.mdf`/`.ldf`/`.ndf`), **Redis** (`.rdb`) | String-scanned (catches plaintext secrets; misses binary-packed/compressed data). These are a running server's internal storage, not a portable single-file format — there's no safe, reliable way to parse them offline. |
+| **Oracle, DB2, Firebird** and other proprietary engines | Not specifically supported; treated as an ordinary binary file. |
+
+`--no-db-peek` skips all of the above; `--db-max-rows` (default 5000) caps rows sampled per table.
+
 ## Use it in your pipeline
 
 ```yaml
@@ -134,7 +152,7 @@ repos:
 exhume/
 ├── scanner.py      engine (multiprocessing, per-file timeout, coverage counters)
 ├── detectors/      patterns · entropy · validators (IBAN/card/DNI/IP) · custom rules
-├── extractors/     documents · archives · OCR · SQLite · magic bytes
+├── extractors/     documents · archives · OCR · databases (SQLite/DBF/BSON/Access) · magic bytes
 ├── sources/        filesystem · git history · SMB · Docker · S3
 ├── verify/         credential verifiers (provider APIs) · IP liveness
 ├── ai_filter.py    bundled local AI: judges matches & assets, verdict cache
