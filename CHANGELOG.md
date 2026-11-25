@@ -4,6 +4,19 @@ All notable versions of Exhume.
 
 ## [Unreleased]
 
+### Fixed
+- **Private IP addresses were wrongly marked "invalid" and hidden by default.** The network check
+  probes from the scanning machine, which is normally OUTSIDE the target's internal network, so a
+  private address (RFC1918) or link-local one almost never responds — that proved nothing about
+  whether the address was real, yet it was treated exactly like a bogus public IP. Private/link-local
+  addresses that don't respond are now `UNKNOWN` (shown normally, not hidden) with an honest detail
+  message, and — since they're no longer short-circuited as invalid — they now also get a chance at
+  the local AI's contextual judgment (e.g. a line with `Computer:`/`User:`/`IP Address:` fields is
+  recognized as a genuine host record). Loopback addresses (127.0.0.0/8) are no longer probed at all
+  (doing so would test the scanning host itself, not the target) and are reported valid outright.
+  Only a genuinely public, unreachable IP is still flagged invalid — that is the real "looks like an
+  IP but isn't a real host" case the check exists to catch.
+
 ### Added
 - **Databases are scanned inside, not just peeked at — for four engines now, not only SQLite.**
   Every row and column is read and run through the full detector engine (not just column names) for:

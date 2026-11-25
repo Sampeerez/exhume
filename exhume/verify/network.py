@@ -5,11 +5,21 @@ common ports and, if nothing answers, asks DNS for a reverse (PTR) record.
 A host that accepts OR actively refuses a connection (RST) certainly exists;
 a PTR record means the address is assigned. Firewalled hosts that silently
 drop everything are reported as "no response" (they may still be real).
+
+Private/link-local addresses (RFC1918, 169.254.0.0/16) are a special case: this probe
+always runs from the scanning machine, which is normally OUTSIDE the target's internal
+network. A private IP found in a log or config is still a real, worth-reporting fact even
+when nothing answers from here — that failure proves nothing about whether the address is
+real, only that this machine can't reach that network. So an unreachable private address is
+reported UNKNOWN (shown normally, not hidden), never INVALID; only a genuinely bogus PUBLIC
+IP (one that answers from nowhere on the real Internet) is flagged invalid. Loopback
+addresses are never probed at all — probing one would just test the scanning host itself.
 """
 from __future__ import annotations
 
 import concurrent.futures as cf
 import errno
+import ipaddress
 import select
 import socket
 import time
@@ -89,12 +99,21 @@ def _ptr(ip: str) -> str | None:
 
 def verify_ip(ip: str) -> tuple[Verified, str]:
     ip = ip.strip()
+    try:
+        addr = ipaddress.IPv4Address(ip)
+    except ValueError:
+        return Verified.UNKNOWN, "not a parseable IPv4 address"
+    if addr.is_loopback:
+        return Verified.VALID, "loopback address (always refers to the scanning host itself)"
     hit = _tcp_probe(ip)
     if hit:
         return Verified.VALID, hit
     name = _ptr(ip)
     if name:
         return Verified.VALID, f"reverse DNS: {name}"
+    if addr.is_private or addr.is_link_local:
+        return (Verified.UNKNOWN, "private address: not reachable from this machine, which is expected "
+                                  "when scanning from outside its network — this does not mean it's fake")
     return Verified.INVALID, "no response on common ports and no reverse DNS"
 
 
