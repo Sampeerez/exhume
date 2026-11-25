@@ -50,6 +50,9 @@ pipx install "git+https://github.com/Sampeerez/exhume"
 exhume /path/to/target        # that's it: scan → HTML report opens in your browser
 ```
 
+(No `pipx`? `pip install pipx` first, or `brew install pipx`. If the shell can't find `exhume` right
+after installing, run `pipx ensurepath` once and open a new terminal — that puts pipx's bin folder on `PATH`.)
+
 No `[full]`, no extra flags: every optional piece (PDF/Office readers, archive formats, OCR, SMB/S3,
 MongoDB dumps, and the local AI runtime) **installs itself the first time it's actually needed** —
 including inside the isolated environment pipx creates, where plain `pip` isn't normally available
