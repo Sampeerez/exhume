@@ -134,6 +134,14 @@ def test_html_has_report_mode_picking(tmp_path):
     assert "pickonly" in html and "exhume-picked" in html and "clearPicks" in html
 
 
+def test_html_has_sortable_columns_and_responsive_cards(tmp_path):
+    p = tmp_path / "r.html"
+    write_html(build_payload(_sample_results(), _stats()), str(p))
+    html = p.read_text()
+    assert "toggleSort" in html and "sortable" in html
+    assert "@media (max-width:860px)" in html and "@media (max-width:480px)" in html
+
+
 def test_ai_triage_bold_markdown_is_rendered_in_html():
     from exhume.reporting.html import _md_to_html
     out = _md_to_html("## Fastest paths to access\n- **AWS Credentials**: rotate immediately.")

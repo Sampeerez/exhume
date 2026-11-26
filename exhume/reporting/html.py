@@ -30,6 +30,8 @@ header{padding:20px 28px;background:linear-gradient(180deg,#141b29,#0c1019);bord
 .badge-mask{background:#2a1d10;color:#ffcf99;border:1px solid #5a3d1a;border-radius:6px;padding:1px 7px;font-size:11px;margin-left:8px}
 main{padding:22px 28px;max-width:1600px;margin:0 auto}
 .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:13px;margin-bottom:18px}
+@media (max-width:860px){.cards{grid-template-columns:repeat(2,1fr)}main{padding:18px 14px}}
+@media (max-width:480px){.cards{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 17px;cursor:pointer;
  transition:transform .08s,border-color .12s}
 .card:hover{transform:translateY(-2px)}
@@ -49,12 +51,18 @@ main{padding:22px 28px;max-width:1600px;margin:0 auto}
 .seg button.active{background:var(--panel2);color:var(--txt)}
 .tog{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:13px;cursor:pointer;user-select:none}
 .count{color:var(--mut);font-size:13px;margin-left:auto}
+.tablewrap{overflow-x:auto}
 table{border-collapse:collapse;width:100%}
 thead th{position:sticky;top:73px;background:#0f1420;z-index:10;text-align:left;color:var(--mut);
  font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em;padding:9px 12px;border-bottom:1px solid var(--line)}
+thead th.sortable{cursor:pointer;user-select:none}
+thead th.sortable:hover{color:var(--txt)}
+.sortarrow{margin-left:4px;color:var(--accent);display:inline-block;width:9px}
 tbody td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
 tbody tr.row{cursor:pointer}
 tbody tr.row:hover{background:#121a28}
+tbody tr.row.picked{background:rgba(139,92,246,.12)}
+tbody tr.row.picked:hover{background:rgba(139,92,246,.18)}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.03em}
 .p3{background:#3a1420;color:#fda4af}.p2{background:#3a2c12;color:#fcd34d}.p1{background:#0e2c3f;color:#7dd3fc}
 .vbadge{font-weight:800;font-size:12px}.v-live,.v-valid{color:var(--live)}.v-dead,.v-invalid{color:#64748b}
@@ -187,10 +195,15 @@ footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
   <span class="count" id="count"></span>
  </div>
 
- <table>
-  <thead><tr><th style="width:26px"></th><th>Severity</th><th>Verified</th><th>Detector</th><th>Location</th><th>Value</th><th class="fpcol" style="width:34px"></th></tr></thead>
+ <div class="tablewrap"><table>
+  <thead><tr><th style="width:26px"></th>
+   <th class="sortable" onclick="toggleSort('severity')">Severity<span class="sortarrow" id="sa-severity"></span></th>
+   <th>Verified</th>
+   <th class="sortable" onclick="toggleSort('detector')">Detector<span class="sortarrow" id="sa-detector"></span></th>
+   <th class="sortable" onclick="toggleSort('loc')">Location<span class="sortarrow" id="sa-loc"></span></th>
+   <th>Value</th><th class="fpcol" style="width:34px"></th></tr></thead>
   <tbody id="rows"></tbody>
- </table>
+ </table></div>
 
  <div class="pager" id="pager"></div>
  <div id="extra"></div>
@@ -226,6 +239,20 @@ function clearPicks(){
  if(!PICK.size) return;
  if(!confirm('Clear all '+PICK.size.toLocaleString()+' picked finding(s)?')) return;
  PICK=new Set(); savePick(); updatePickCount(); render(false);
+}
+// ---- column sorting ----
+let sortKey=null, sortDir=1;
+function sortVal(f,key){
+ if(key==='severity') return f.severity;
+ if(key==='detector') return f.detector;
+ if(key==='loc') return f.path+':'+String(f.line).padStart(10,'0');
+ return 0;
+}
+function toggleSort(key){
+ if(sortKey===key) sortDir=-sortDir; else { sortKey=key; sortDir=1; }
+ document.querySelectorAll('.sortarrow').forEach(s=>s.textContent='');
+ const el=document.getElementById('sa-'+key); if(el) el.textContent=sortDir>0?'▲':'▼';
+ render(false);
 }
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function vbadge(f){
@@ -335,7 +362,9 @@ function detailHTML(f,i){
   +'</div>';
 }
 function rowFor(f,i){
- const tr=document.createElement('tr'); tr.className='row'+(DIS.has(f.fingerprint)?' dis':'')+(f.verified==='invalid'||f.ai==='false'?' inv':'');
+ const tr=document.createElement('tr');
+ tr.className='row'+(DIS.has(f.fingerprint)?' dis':'')+(f.verified==='invalid'||f.ai==='false'?' inv':'')
+  +(REPORT&&PICK.has(f.fingerprint)?' picked':'');
  const vb=vbadge(f);
  const occ=f.occurrences||1;
  const occBadge=occ>1?'<span class="occ" title="This exact value appears in '+occ.toLocaleString()+' places">×'+occ.toLocaleString()+'</span>':'';
@@ -361,6 +390,7 @@ function rowFor(f,i){
   tr.querySelector('.pickbox').addEventListener('change',ev=>{
    ev.stopPropagation();
    if(ev.target.checked) PICK.add(f.fingerprint); else PICK.delete(f.fingerprint);
+   tr.classList.toggle('picked',ev.target.checked);
    savePick(); updatePickCount();
    if(document.getElementById('pickonly').checked) render(false);
   });
@@ -374,6 +404,10 @@ function render(resetPage){
  if(resetPage!==false) page=0;
  rebuildDetectorOptions();
  view=[]; DATA.findings.forEach((f,i)=>{ if(match(f)) view.push(i); });
+ if(sortKey) view.sort((a,b)=>{
+  const va=sortVal(DATA.findings[a],sortKey), vb=sortVal(DATA.findings[b],sortKey);
+  return va<vb?-sortDir:(va>vb?sortDir:0);
+ });
  const pages=Math.max(1,Math.ceil(view.length/PAGE));
  if(page>=pages) page=pages-1;
  const tb=document.getElementById('rows'); tb.innerHTML='';

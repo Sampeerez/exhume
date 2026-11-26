@@ -20,7 +20,12 @@ All notable versions of Exhume.
   it ignores the severity tab, detector and search filters entirely, since the whole point is a
   curated combination you built across several of those filters. Picks persist across a reload
   (`localStorage`, scoped per target like the existing dismiss list) and a "Clear picks" button
-  resets them.
+  resets them. A picked row is now also highlighted immediately, independent of that toggle, so
+  it's obvious while curating what's already checked.
+- **HTML report: sortable columns and a usable layout on small screens.** Severity, Detector and
+  Location column headers now sort the table (click again to reverse); the summary cards collapse
+  to 2 then 1 per row below 860px/480px instead of staying squeezed into 5; the table scrolls
+  horizontally on its own instead of blowing out the page width.
 
 ### Fixed
 - **Garbage binary data was still matched by detectors that have no entropy/junk check of their
