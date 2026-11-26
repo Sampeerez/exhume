@@ -110,10 +110,23 @@ def test_coverage_counts(tmp_path, cfg):
     (tmp_path / "a.txt").write_text("hello")
     (tmp_path / "b.mp3").write_bytes(b"\x89PNG\r\n" + b"\x00" * 50)
     cfg.target = str(tmp_path)
+    cfg.scan_strings = False  # verifying the skip-without-strings path specifically
     scanner = Scanner(cfg)
     scanner.run()
     assert scanner.stats.coverage.get("scanned") == 1
     assert scanner.stats.coverage.get("media_skipped") == 1
+
+
+def test_media_is_string_scanned_by_default(tmp_path, cfg):
+    """Defaults are exhaustive now: a media file isn't silently skipped unless --no-strings
+    is explicitly passed (cfg.scan_strings already defaults to True)."""
+    (tmp_path / "b.mp3").write_bytes(b"ID3" + b"\x00" * 20 + b"AKIAIOSFODNN7EXAMPLE" + b"\x00" * 10)
+    cfg.target = str(tmp_path)
+    assert cfg.scan_strings is True
+    scanner = Scanner(cfg)
+    results = scanner.run()
+    assert scanner.stats.coverage.get("media_skipped") is None
+    assert any(f.detector == "AWS Access Key ID" for r in results for f in r.findings)
 
 
 def test_sqlite_content_is_scanned_for_secrets(tmp_path, cfg):

@@ -61,7 +61,7 @@ exhume . --git --only-verified                     # repo + full history, show o
 exhume smb://10.0.0.5/Finance --smb-user audit --smb-pass '***'
 exhume docker://myapp:latest --sarif               # Docker image
 exhume s3://my-bucket/logs                         # S3 bucket
-exhume backup.zip --deep                           # archive, exhaustive mode
+exhume backup.zip --quick                          # fast, limited pass instead of the default
 exhume . --baseline known.json --write-baseline known.json   # re-audit: only what's new
 exhume . --mask --no-open                          # client-safe output, don't open the report
 ```
@@ -79,7 +79,8 @@ exhume . --mask --no-open                          # client-safe output, don't o
 | `--html-max N` | Findings embedded in the HTML report (default 50 000; the CSV always has all) |
 | `--git` / `--no-git-history` | Force / skip Git history |
 | `--include` / `--exclude GLOB` | Scope by path (repeatable) |
-| `--strings` · `--no-ocr` · `--quick` · `--deep` | Binary strings · OCR off · fast / exhaustive profiles |
+| `--quick` | Fast, limited pass (small files, no strings/OCR) — the default is already exhaustive: any file size, strings in every binary, OCR when available |
+| `--no-strings` · `--no-ocr` · `--max-size N` | Turn off one piece of the exhaustive default instead of all of it |
 | `--rules FILE` · `--allowlist FILE` | Custom rules ([example](rules/example.yaml)) · regexes to ignore |
 | `--no-db-peek` · `--db-max-rows N` | Skip database content · rows sampled per table (default 5000) |
 | `--no-autoinstall` | Never install anything automatically |

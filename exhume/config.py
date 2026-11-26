@@ -21,13 +21,15 @@ class Config:
     open_report: bool = True
 
     # --- Scan scope ---
-    max_size_mb: int = 100
+    # The defaults are already maximal/exhaustive (no size cap, strings everywhere, OCR when
+    # available) — --quick is the opt-in trade-off for speed, not the other way around.
+    max_size_mb: int = 0        # 0 = no limit
     min_entropy: float = 3.8
-    max_depth: int = 4
+    max_depth: int = 6
     archive_max_mb: int = 1024
     archive_max_files: int = 20000
     follow_links: bool = False
-    scan_strings: bool = False
+    scan_strings: bool = True
     ocr: bool = True            # OCR images when tesseract is available (auto-skips if not)
     db_peek: bool = True
     db_max_rows: int = 5000     # rows sampled per table when scanning database CONTENT for secrets

@@ -219,6 +219,29 @@ def test_coverage_breakdown_is_a_floating_popover_with_actionable_hints(tmp_path
     assert "tesseract" in html
 
 
+def test_hidden_and_ai_notes_sit_in_one_flex_row_not_overlapping(tmp_path):
+    """The "N hidden by default" note and the "AI filter: ..." note were two loose
+    inline-block siblings — Chrome's baseline alignment put them on visibly different,
+    overlapping lines with a stray empty gap below (reported as looking broken/"raro y mal").
+    Wrapping both in one flex row makes their layout predictable."""
+    from exhume.models import FileResult, Finding, Severity, Verified
+    f_hidden = Finding(detector="IBAN", severity=Severity.HIGH, line=1, redacted="X", context="x",
+                      path="a.pdf", verified=Verified.INVALID)
+    f_shown = Finding(detector="AWS Access Key ID", severity=Severity.CRITICAL, line=1,
+                      redacted="AKIA...MPLE", context="x", path="a.env", verified=Verified.LIVE)
+    results = [FileResult(path="a.env", name="a.env", ext=".env", size=10, findings=[f_shown, f_hidden])]
+    stats = _stats()
+    stats.ai_engine = "bundled Qwen2.5-3B"
+    p = tmp_path / "r.html"
+    write_html(build_payload(results, stats), str(p))
+    html = p.read_text()
+    import re
+    assert '<div class="mnoterow">' in html
+    assert 'class="mnote warn"' in html and 'class="mnote ai"' in html
+    m = re.search(r"\.mnote\{([^}]*)\}", html)
+    assert m and "inline-block" not in m.group(1)
+
+
 def test_detected_assets_title_and_tree_share_one_hideable_wrapper(tmp_path):
     """Report mode hides #assetsec — the old code appended the "Detected assets" <h2> as a
     SEPARATE sibling before the #assetsec tree box, so the title stayed visible with nothing

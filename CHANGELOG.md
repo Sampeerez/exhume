@@ -4,6 +4,26 @@ All notable versions of Exhume.
 
 ## [Unreleased]
 
+### Changed (defaults are now maximal/exhaustive out of the box)
+Requested directly: "quiero que por defecto estuvieran todas las opciones de deep... tiene que ser
+al máximo por defecto." A plain `exhume target`, no flags, now behaves like the old `--deep` always:
+- `--max-size` defaults to **0 (no limit)** instead of 100MB.
+- Binaries are **string-scanned everywhere** by default (`--no-strings` to turn it off), not just
+  executables/key material.
+- Archive nesting defaults to **6** levels instead of 4.
+- OCR was already on by default when available — unchanged.
+- `--quick` is still there as the opt-in trade-off for a fast, limited first pass; `--deep` still
+  works but is now a no-op (its settings are the baseline). `--strings` is kept as a harmless
+  legacy alias for the same reason.
+
+### Fixed (one more layout bug in the metadata area)
+The "N hidden by default" note and the "AI filter: ..." note were two loose inline-block elements
+— Chrome's baseline alignment rendered them on visibly different, overlapping lines with a stray
+empty gap below whenever they didn't obviously leave room for both on one line (reported again as
+"se sigue viendo mal" with a screenshot showing the AI badge floating above and overlapping the
+hidden-count note). Wrapped both in one flex row instead, which lays out predictably regardless of
+their combined width.
+
 ### Fixed (scan coverage: "quiero que se analice TODO, absolutamente todo")
 Reported: a scan's coverage line showed hundreds of "binary skipped", "media skipped", "images
 without OCR" and a few "too big", with no way to actually get everything scanned — `--max-size 0`

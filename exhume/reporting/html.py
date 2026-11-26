@@ -65,11 +65,12 @@ header::before{content:"";display:block;height:3px;margin:-18px -28px 15px;
 .covlist{list-style:none;margin:0;padding:0;font-size:12px;color:var(--mut);display:flex;flex-direction:column;gap:6px}
 .covlist b{color:var(--txt);font-variant-numeric:tabular-nums;margin-right:4px}
 .covhint{display:block;color:#93c5fd;font-size:11px;margin-top:1px}
-.mnote{margin-top:8px;font-size:12.5px;border-radius:9px;padding:7px 12px;display:inline-block}
+.mnoterow{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;margin-top:8px}
+.mnote{font-size:12.5px;border-radius:9px;padding:7px 12px}
 .mnote b{font-variant-numeric:tabular-nums}
 .mnote.warn{background:#1c140a;border:1px solid #5a3d1a;color:#ffcf99}
 .mnote.warn b{color:#ffdca8}
-.mnote.ai{background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.35);color:#c4b5fd;margin-left:8px}
+.mnote.ai{background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.35);color:#c4b5fd;white-space:nowrap}
 .mnote.ai b{color:#ded0ff}
 .badge-mask{background:#2a1d10;color:#ffcf99;border:1px solid #5a3d1a;border-radius:6px;padding:1px 7px;font-size:11px;margin-left:8px}
 main{padding:24px 28px 60px;max-width:1600px;margin:0 auto}
@@ -862,12 +863,16 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
         )
     ai_html = (f'<div class="mnote ai">AI filter: <b>{_h.escape(m["ai_engine"])}</b></div>'
               if m.get("ai_engine") else "")
+    # A flex row, not two loose inline-block siblings: inline-block's baseline alignment put these
+    # two notes on visibly different, overlapping lines in testing (reported as looking broken,
+    # with a stray gap below) whenever their combined width didn't leave obvious room to spare.
+    notes_html = (f'<div class="mnoterow">{hidden_html}{ai_html}</div>' if (hidden_html or ai_html) else "")
 
     metaline = (
         f'Target: <b class="tgt" data-real="{_h.escape(m["target"], quote=True)}">{_h.escape(m["target"])}</b>'
         f'<span class="mgen">generated {_h.escape(m["generated"])} · v{m["version"]}</span>'
         f'<div class="metachips">{"".join(chips)}{cov_html}</div>'
-        f'{hidden_html}{ai_html}'
+        f'{notes_html}'
     )
     mask_badge = '<span class="badge-mask">MASKED</span>' if m.get("masked") else ""
 

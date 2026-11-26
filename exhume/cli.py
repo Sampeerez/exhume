@@ -41,11 +41,14 @@ Examples:
   exhume smb://10.0.0.5/Finance --smb-user audit --smb-pass '***'
   exhume docker://myapp:latest --sarif
   exhume s3://my-bucket/logs
-  exhume backup.zip --strings --ocr --rules client_rules.yaml
-  exhume . --deep                          # scan absolutely everything, any file size
+  exhume backup.zip --rules client_rules.yaml
+  exhume . --quick                         # fast, limited pass instead of the exhaustive default
   exhume . --baseline known.json           # only show NEW findings
   exhume . --mask                          # client-safe: hide secret values
   exhume . --no-verify                     # don't touch provider APIs
+
+The default is already exhaustive: any file size, strings in every binary, OCR when available.
+--quick trades that for speed on a first pass; --no-strings/--no-ocr/--max-size turn off one piece.
 
 For AUTHORIZED audits only. Verification (on by default) authenticates using the
 discovered credentials; findings that can't be verified are still reported.
@@ -80,13 +83,17 @@ def build_parser() -> argparse.ArgumentParser:
     out.add_argument("--no-color", action="store_true")
 
     scope = p.add_argument_group("scope")
-    scope.add_argument("--max-size", type=int, default=100,
-                      help="Max MB per file (def 100; 0 = no limit, scan files of any size)")
+    scope.add_argument("--max-size", type=int, default=0,
+                      help="Max MB per file (def 0 = no limit, scan files of any size)")
     scope.add_argument("--min-entropy", type=float, default=3.8)
-    scope.add_argument("--max-depth", type=int, default=4, help="Nested-archive depth")
+    scope.add_argument("--max-depth", type=int, default=6, help="Nested-archive depth (def 6)")
     scope.add_argument("--archive-max-mb", type=int, default=1024)
     scope.add_argument("--archive-max-files", type=int, default=20000)
-    scope.add_argument("--strings", action="store_true", help="Scan strings inside ALL binaries")
+    # legacy flag, on by default now:
+    scope.add_argument("--strings", dest="scan_strings", action="store_true", help=argparse.SUPPRESS)
+    scope.add_argument("--no-strings", dest="scan_strings", action="store_false",
+                       help="Don't string-scan binaries beyond executables/key material "
+                            "(on by default: strings are scanned everywhere)")
     scope.add_argument("--no-ocr", dest="ocr", action="store_false",
                        help="Disable image OCR (on by default when tesseract is available)")
     scope.add_argument("--exclude", action="append", default=[], metavar="GLOB",
@@ -98,9 +105,10 @@ def build_parser() -> argparse.ArgumentParser:
     scope.add_argument("--db-max-rows", type=int, default=5000,
                        help="Rows sampled per table when scanning database content (def 5000)")
     scope.add_argument("--follow-links", action="store_true")
-    scope.add_argument("--quick", action="store_true", help="Fast profile")
-    scope.add_argument("--deep", action="store_true",
-                      help="Exhaustive profile: strings in every binary, OCR, deeper nesting, no size cap")
+    scope.add_argument("--quick", action="store_true",
+                      help="Fast, limited profile (small files only, no strings/OCR) — "
+                           "the default is already maximal/exhaustive")
+    scope.add_argument("--deep", action="store_true", help=argparse.SUPPRESS)  # kept: already the default
 
     git = p.add_argument_group("git")
     git.add_argument("--git", action="store_true", help="Force git-history scan")
@@ -153,7 +161,8 @@ def build_parser() -> argparse.ArgumentParser:
     s3.add_argument("--s3-region", default="")
     s3.add_argument("--s3-all", action="store_true")
 
-    p.set_defaults(db_peek=True, git_history=True, autoinstall=True, ocr=True, ai=True, verify=True)
+    p.set_defaults(db_peek=True, git_history=True, autoinstall=True, ocr=True, ai=True, verify=True,
+                   scan_strings=True)
     return p
 
 
@@ -164,7 +173,7 @@ def args_to_config(a: argparse.Namespace) -> Config:
         want_html=not a.no_html, want_json=a.json, want_sarif=a.sarif, want_csv=not a.no_csv,
         open_report=not a.no_open, max_size_mb=a.max_size, min_entropy=a.min_entropy,
         max_depth=a.max_depth, archive_max_mb=a.archive_max_mb, archive_max_files=a.archive_max_files,
-        follow_links=a.follow_links, scan_strings=a.strings, ocr=a.ocr, db_peek=a.db_peek,
+        follow_links=a.follow_links, scan_strings=a.scan_strings, ocr=a.ocr, db_peek=a.db_peek,
         db_max_rows=a.db_max_rows,
         git_history=a.git_history, force_git=a.git, exclude=list(a.exclude), include=list(a.include),
         verify=a.verify, probe_ips=a.probe_ips, only_verified=a.only_verified,
