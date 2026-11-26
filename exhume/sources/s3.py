@@ -42,7 +42,7 @@ def download(target: str, cfg) -> tuple[str, str]:
             key = obj["Key"]
             if key.endswith("/"):
                 continue
-            if obj.get("Size", 0) > max_bytes and not cfg.s3_all:
+            if max_bytes is not None and obj.get("Size", 0) > max_bytes and not cfg.s3_all:
                 continue
             local = safe_join(tmp, key.replace("/", os.sep))
             if not local:

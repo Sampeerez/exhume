@@ -10,6 +10,7 @@ from . import __version__
 from .config import Config
 from .console import Colors, eprint
 from .deps import resolve
+from .extractors.ocr import tesseract_available
 from .reporting import print_report, write_outputs
 from .scanner import Scanner
 
@@ -41,6 +42,7 @@ Examples:
   exhume docker://myapp:latest --sarif
   exhume s3://my-bucket/logs
   exhume backup.zip --strings --ocr --rules client_rules.yaml
+  exhume . --deep                          # scan absolutely everything, any file size
   exhume . --baseline known.json           # only show NEW findings
   exhume . --mask                          # client-safe: hide secret values
   exhume . --no-verify                     # don't touch provider APIs
@@ -78,7 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
     out.add_argument("--no-color", action="store_true")
 
     scope = p.add_argument_group("scope")
-    scope.add_argument("--max-size", type=int, default=100, help="Max MB per file (def 100)")
+    scope.add_argument("--max-size", type=int, default=100,
+                      help="Max MB per file (def 100; 0 = no limit, scan files of any size)")
     scope.add_argument("--min-entropy", type=float, default=3.8)
     scope.add_argument("--max-depth", type=int, default=4, help="Nested-archive depth")
     scope.add_argument("--archive-max-mb", type=int, default=1024)
@@ -96,7 +99,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Rows sampled per table when scanning database content (def 5000)")
     scope.add_argument("--follow-links", action="store_true")
     scope.add_argument("--quick", action="store_true", help="Fast profile")
-    scope.add_argument("--deep", action="store_true", help="Exhaustive profile (strings+ocr+depth)")
+    scope.add_argument("--deep", action="store_true",
+                      help="Exhaustive profile: strings in every binary, OCR, deeper nesting, no size cap")
 
     git = p.add_argument_group("git")
     git.add_argument("--git", action="store_true", help="Force git-history scan")
@@ -191,6 +195,11 @@ def main(argv: list[str] | None = None) -> int:
     missing = [k for k, v in have.items() if not v]
     if missing:
         eprint(f"{Colors.Y}Optional extras unavailable:{Colors.END} {', '.join(sorted(missing))}")
+    if cfg.ocr and have.get("pytesseract") and not tesseract_available():
+        eprint(f"{Colors.Y}OCR unavailable: the Python package is installed but the `tesseract` "
+               f"system program isn't — images will be skipped (not text-searched). Install it "
+               f"with `brew install tesseract` (macOS) or `apt install tesseract-ocr` (Linux), "
+               f"pip can't install this one for you.{Colors.END}")
     if cfg.verify:
         eprint(f"{Colors.Y}Live verification ON: discovered credentials will be tested against "
                f"provider APIs, and discovered IPs are probed to confirm they are real hosts. "

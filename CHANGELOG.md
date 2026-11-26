@@ -4,6 +4,38 @@ All notable versions of Exhume.
 
 ## [Unreleased]
 
+### Fixed (scan coverage: "quiero que se analice TODO, absolutamente todo")
+Reported: a scan's coverage line showed hundreds of "binary skipped", "media skipped", "images
+without OCR" and a few "too big", with no way to actually get everything scanned — `--max-size 0`
+looked like it should mean "no limit" (it's the convention `--html-max 0` already uses elsewhere in
+this tool) but didn't actually work that way:
+- **`--max-size 0` now genuinely means no size cap**, and `--deep` ("exhaustive profile") now lifts
+  the cap entirely instead of merely raising it to a 300MB floor — it already turned on
+  `--strings` (every binary, not just executables) and OCR, so combined with no size cap it now
+  actually scans everything, by design, not just "more than before".
+- **Found and fixed a real crash while building this**: the obvious way to implement "no cap" is a
+  huge sentinel number, but `file.read(hugeNumber)` raises `MemoryError` trying to size a buffer
+  up front — even for a perfectly ordinary, small file (reproduced on a 105MB test file; `--deep`
+  turned a clean "too big, skipped" into a silent "1 errors" with no explanation why). Fixed by
+  using `None` to mean "no cap" through every call site (`Config.max_bytes`, `read_textish`, the
+  SMB/S3 size filters) — `file.read()` with no argument reads to EOF the efficient way instead.
+- **The coverage breakdown is reorganized into Processed / Skipped by default / Failed**, and each
+  skip reason now says exactly which flag includes it (`--strings`, `--ocr`, `--max-size 0`, or
+  `--deep` for all of it at once) instead of just a bare count with no indication anything could be
+  done about it.
+- **Found a second, silent gap while answering "why no OCR": the dependency check only verifies
+  the `pytesseract` *Python* package imports — pip installs that part automatically — but says
+  nothing about whether the `tesseract` *system* program itself is callable, which pip can't
+  install.** This is a real, separate failure mode (confirmed: this very dev machine has the
+  Python package but not the system binary) that was completely invisible before. The console now
+  checks this for real and tells you to `brew install tesseract` / `apt install tesseract-ocr`
+  when it's missing, instead of only showing up as an uninformative count in the report.
+- **Fixed a layout bug in the coverage breakdown dropdown** (reported as looking "raro y mal"): it
+  used to expand inline as a flex item inside the metadata chips row, so opening it stretched nearby
+  chips and left a large empty gap where the row couldn't reflow around its new height. It's now a
+  floating popover (closes on an outside click) that overlays the page instead of disturbing the
+  chips' layout at all.
+
 ### Fixed (AI triage summary silently missing on large scans)
 Reported: a 75k-file scan showed `AI filter: bundled Qwen2.5-3B` (so the model clearly ran and
 filtered 3,798 false positives) but the "Triage summary" section never appeared, with no error

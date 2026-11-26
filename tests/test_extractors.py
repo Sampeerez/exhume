@@ -31,6 +31,18 @@ def test_read_textish_strings_mode(tmp_path):
     assert "AKIAIOSFODNN7EXAMPLE" in text
 
 
+def test_read_textish_none_means_no_cap(tmp_path):
+    """--max-size 0 (--deep) passes max_bytes=None for "no limit". A naive fix once passed a
+    huge sentinel int to file.read() instead, which raised MemoryError trying to size a buffer
+    up front — even for a perfectly ordinary, small file. None must mean "read to EOF", not
+    "read up to some enormous number"."""
+    p = tmp_path / "a.txt"
+    p.write_text("hello world, no size cap")
+    text, method = read_textish(str(p), None, strings_mode=False)
+    assert text == "hello world, no size cap"
+    assert method == "text"
+
+
 def test_extract_strings_utf16():
     raw = b"h\x00e\x00l\x00l\x00o\x00w\x00o\x00r\x00l\x00d\x00"
     assert "helloworld" in extract_strings(raw)
@@ -78,3 +90,12 @@ def test_ocr_missing_is_graceful(tmp_path):
     p.write_bytes(b"\x89PNG\r\n")
     text, method = ocr_image(str(p))
     assert method in ("no-ocr", "ocr") or method.startswith("ocr-error")
+
+
+def test_tesseract_available_reflects_ocr_ready():
+    """A scan reported images silently skipped with no explanation — the generic "optional
+    extras" check only verifies the pytesseract PYTHON package imports, which pip installs
+    automatically; it says nothing about whether the system `tesseract` binary itself is
+    actually callable, which pip can't install. tesseract_available() is the real check."""
+    from exhume.extractors import ocr as ocr_mod
+    assert ocr_mod.tesseract_available() == ocr_mod._ocr_ready()

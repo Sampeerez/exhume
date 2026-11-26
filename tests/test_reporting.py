@@ -200,6 +200,25 @@ def test_html_has_unknown_verified_badge_and_metachips(tmp_path):
     assert "covdetails" in html
 
 
+def test_coverage_breakdown_is_a_floating_popover_with_actionable_hints(tmp_path):
+    """The coverage breakdown used to expand inline inside the metadata chips row — since the
+    chips are flex items, an open <details> grew tall in place and left the rest of that row's
+    items stretched/misaligned with a large empty gap beside it (reported as looking "raro y
+    mal"). It's now a position:absolute popover that overlays instead of disturbing the layout.
+    Also checks each skip reason now says exactly which flag fixes it (reported: "porque pone
+    skipped y 3 too big? quiero que se analice TODO")."""
+    stats = _stats()
+    stats.coverage = {"scanned": 10, "binary_skipped": 3, "media_skipped": 2,
+                      "ocr_unavailable": 1, "too_big": 1, "document_failed": 1}
+    p = tmp_path / "r.html"
+    write_html(build_payload(_sample_results(), stats), str(p))
+    html = p.read_text()
+    assert ".covpanel{position:absolute" in html.replace(" ", "")
+    assert "--strings (or --deep)" in html
+    assert "--max-size 0 (or --deep)" in html
+    assert "tesseract" in html
+
+
 def test_detected_assets_title_and_tree_share_one_hideable_wrapper(tmp_path):
     """Report mode hides #assetsec — the old code appended the "Detected assets" <h2> as a
     SEPARATE sibling before the #assetsec tree box, so the title stayed visible with nothing

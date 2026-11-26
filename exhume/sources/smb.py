@@ -51,7 +51,7 @@ def download(target: str, cfg) -> tuple[str, str]:
                 if name not in DEFAULT_SKIP_DIRS:
                     walk(rpath)
                 continue
-            if e.get_filesize() > max_bytes and not cfg.smb_all:
+            if max_bytes is not None and e.get_filesize() > max_bytes and not cfg.smb_all:
                 continue
             local = safe_join(tmp, rpath.replace("/", os.sep))
             if not local:

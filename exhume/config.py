@@ -91,17 +91,25 @@ class Config:
         return cpu if self.use_processes else min(32, cpu * 4)
 
     @property
-    def max_bytes(self) -> int:
-        return self.max_size_mb * 1024 * 1024
+    def max_bytes(self) -> int | None:
+        # 0 means "no limit" (--max-size 0 / the --deep profile) -> None, not some huge
+        # sentinel int: file.read(N) for an enormous N can itself raise MemoryError trying to
+        # size a buffer up front, even when the real file is tiny. file.read() with no argument
+        # reads to EOF efficiently instead, so every caller must treat None as "no cap".
+        return self.max_size_mb * 1024 * 1024 if self.max_size_mb > 0 else None
 
     def apply_profile(self, quick: bool = False, deep: bool = False) -> None:
         if quick:
             self.max_depth = min(self.max_depth, 2)
             self.scan_strings = False
             self.ocr = False
-            self.max_size_mb = min(self.max_size_mb, 25)
+            if self.max_size_mb == 0 or self.max_size_mb > 25:
+                self.max_size_mb = 25
         if deep:
             self.scan_strings = True
             self.ocr = True
             self.max_depth = max(self.max_depth, 6)
-            self.max_size_mb = max(self.max_size_mb, 300)
+            # "Exhaustive" means exhaustive: no size cap, unless the user explicitly asked
+            # for a bigger one than the old 300MB floor (then their number wins, same as before).
+            if self.max_size_mb != 0 and self.max_size_mb < 300:
+                self.max_size_mb = 0

@@ -49,15 +49,22 @@ header::before{content:"";display:block;height:3px;margin:-18px -28px 15px;
 .mchip{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:3px 11px;
  font-size:12px;color:var(--mut);display:inline-flex;gap:5px;align-items:center}
 .mchip b{color:var(--txt);font-weight:700;font-variant-numeric:tabular-nums}
-.covdetails{display:inline-block}
+/* A floating popover, not an inline expand: the old in-flow <details> pushed its flex sibling
+   (part of .metachips) down and to the side when opened, leaving a large empty gap in the row —
+   position:absolute keeps it from disturbing the chips' layout at all. */
+.covdetails{position:relative;display:inline-block}
 .covdetails summary{list-style:none;cursor:pointer;background:var(--panel2);border:1px solid var(--line);
  border-radius:999px;padding:3px 11px;font-size:12px;color:var(--mut)}
 .covdetails summary::-webkit-details-marker{display:none}
 .covdetails summary::after{content:" \25BE";color:var(--accent)}
 .covdetails[open] summary::after{content:" \25B4"}
-.covlist{list-style:none;margin:6px 0 0;padding:10px 14px;background:var(--panel2);border:1px solid var(--line);
- border-radius:10px;font-size:12px;color:var(--mut);display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:4px 14px}
-.covlist b{color:var(--txt);font-variant-numeric:tabular-nums}
+.covpanel{position:absolute;top:calc(100% + 6px);left:0;z-index:25;min-width:300px;max-width:min(420px,80vw);
+ background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;box-shadow:var(--shadow)}
+.covgroup+.covgroup{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.covgroup h4{margin:0 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);font-weight:700}
+.covlist{list-style:none;margin:0;padding:0;font-size:12px;color:var(--mut);display:flex;flex-direction:column;gap:6px}
+.covlist b{color:var(--txt);font-variant-numeric:tabular-nums;margin-right:4px}
+.covhint{display:block;color:#93c5fd;font-size:11px;margin-top:1px}
 .mnote{margin-top:8px;font-size:12.5px;border-radius:9px;padding:7px 12px;display:inline-block}
 .mnote b{font-variant-numeric:tabular-nums}
 .mnote.warn{background:#1c140a;border:1px solid #5a3d1a;color:#ffcf99}
@@ -675,6 +682,9 @@ document.addEventListener('keydown',e=>{
  if(e.key==='/' && document.activeElement!==q){e.preventDefault();q.focus();}
  else if(e.key==='Escape' && document.activeElement===q){q.value='';render();q.blur();}
 });
+document.addEventListener('click',e=>{
+ document.querySelectorAll('.covdetails[open]').forEach(d=>{ if(!d.contains(e.target)) d.open=false; });
+});
 updatePickCount();
 render(); renderExtra();
 </script></body></html>"""
@@ -802,13 +812,41 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
     chips.append(chip(f"{m['seconds']}s", " elapsed"))
 
     cov = m.get("coverage") or {}
-    _lbl = {"scanned": "content scanned", "archives": "archives unpacked", "media_skipped": "media skipped",
-            "binary_skipped": "binary skipped", "document_failed": "documents unreadable",
-            "ocr_unavailable": "images without OCR",
-            "too_big": "too big", "timeout": "timed out", "error": "errors"}
-    cov_rows = "".join(f"<li><b>{v:,}</b> {_lbl.get(k, k)}</li>" for k, v in cov.items() if v)
+    # (label, hint shown under the count — None when there's nothing the user can do about it).
+    _cov_meta = {
+        "scanned": ("content scanned", None),
+        "archives": ("archives unpacked", None),
+        "binary_skipped": ("binary files skipped", "include them: --strings (or --deep)"),
+        "media_skipped": ("media files skipped", "include them: --strings (or --deep)"),
+        "ocr_unavailable": ("images without OCR", "install the tesseract program (see console output), "
+                            "then re-run"),
+        "too_big": ("files too big, skipped", "raise or remove the cap: --max-size 0 (or --deep)"),
+        "document_failed": ("documents unreadable", "corrupt, encrypted, or an unsupported format"),
+        "timeout": ("timed out", "raise the per-file limit: --file-timeout"),
+        "error": ("read errors", None),
+    }
+    _cov_groups = [
+        ("Processed", ("scanned", "archives")),
+        ("Skipped by default", ("binary_skipped", "media_skipped", "ocr_unavailable", "too_big")),
+        ("Failed", ("document_failed", "timeout", "error")),
+    ]
+
+    def cov_group(title: str, keys: tuple) -> str:
+        rows = []
+        for k in keys:
+            v = cov.get(k, 0)
+            if not v:
+                continue
+            label, hint = _cov_meta.get(k, (k, None))
+            hint_html = f'<span class="covhint">{_h.escape(hint)}</span>' if hint else ""
+            rows.append(f'<li><b>{v:,}</b> {_h.escape(label)}{hint_html}</li>')
+        if not rows:
+            return ""
+        return f'<div class="covgroup"><h4>{_h.escape(title)}</h4><ul class="covlist">{"".join(rows)}</ul></div>'
+
+    cov_body = "".join(cov_group(title, keys) for title, keys in _cov_groups)
     cov_html = (f'<details class="covdetails"><summary>Coverage breakdown</summary>'
-               f'<ul class="covlist">{cov_rows}</ul></details>') if cov_rows else ""
+               f'<div class="covpanel">{cov_body}</div></details>') if cov_body else ""
 
     hidden_html = ""
     if inv:

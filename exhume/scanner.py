@@ -200,7 +200,7 @@ def process_entry(real_path: str, display_path: str, cfg: Config,
     extra_detectors, allow = cached_rules(rules_key, cfg.allowlist_file)
 
     rec = FileResult(path=display_path, name=name, ext=ext, size=size, tags=tags)
-    too_big = size > cfg.max_bytes
+    too_big = cfg.max_bytes is not None and size > cfg.max_bytes
 
     db_engine = db_engine_for(ext, magic_kind) if "database" in tags and cfg.db_peek else None
     if db_engine and not too_big:

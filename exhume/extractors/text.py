@@ -15,14 +15,18 @@ def extract_strings(raw: bytes, cap: int = 2_000_000) -> str:
     return "\n".join(parts)[:cap]
 
 
-def read_textish(path: str, max_bytes: int, strings_mode: bool) -> tuple[str | None, str]:
+def read_textish(path: str, max_bytes: int | None, strings_mode: bool) -> tuple[str | None, str]:
     """Read a file as text. If it looks binary: strings (if enabled) or skip.
+
+    *max_bytes* of ``None`` means no cap — read the whole file. Pass the real file size's
+    worth of bytes here, never an oversized sentinel: ``file.read(N)`` for a huge ``N`` can
+    itself raise ``MemoryError`` trying to size a buffer up front, even on a small file.
 
     Returns (text|None, method).
     """
     try:
         with open(path, "rb") as f:
-            raw = f.read(max_bytes)
+            raw = f.read() if max_bytes is None else f.read(max_bytes)
     except OSError as exc:
         return None, f"error:{type(exc).__name__}"
     if raw and raw.count(0) / len(raw) > _NUL_RATIO:

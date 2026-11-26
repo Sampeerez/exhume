@@ -20,6 +20,14 @@ def _ocr_ready() -> bool:
         return False
 
 
+def tesseract_available() -> bool:
+    """Whether OCR will actually work: pytesseract/Pillow import fine AND the system
+    ``tesseract`` binary itself is callable. pip installs the former automatically; the
+    latter is a native program pip can't install, so this can be False even when every
+    Python package is present — the one case the generic "optional extras" check misses."""
+    return _ocr_ready()
+
+
 def ocr_image(path: str) -> tuple[str | None, str]:
     """Return (text, method) or (None, reason). Needs pillow + pytesseract + tesseract."""
     if not _ocr_ready():
