@@ -125,6 +125,15 @@ def test_html_has_report_mode_and_dismiss(tmp_path):
     assert "toggleReport" in html and "setDis" in html and "exhume-dismissed" in html
 
 
+def test_html_has_report_mode_picking(tmp_path):
+    """Report mode lets someone check individual findings and show only that curated
+    set (e.g. 2 highs + 1 medium) for a screenshot, independent of the severity/search filters."""
+    p = tmp_path / "r.html"
+    write_html(build_payload(_sample_results(), _stats()), str(p))
+    html = p.read_text()
+    assert "pickonly" in html and "exhume-picked" in html and "clearPicks" in html
+
+
 def test_ai_triage_bold_markdown_is_rendered_in_html():
     from exhume.reporting.html import _md_to_html
     out = _md_to_html("## Fastest paths to access\n- **AWS Credentials**: rotate immediately.")

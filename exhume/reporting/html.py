@@ -110,7 +110,7 @@ tr.row.dis .det,tr.row.dis .val,tr.row.dis .loc{text-decoration:line-through}
 .rbanner{display:none;background:#10231a;border:1px solid #1f5a3a;color:#86efac;border-radius:10px;padding:9px 14px;margin-bottom:14px;font-size:13px}
 body.report .rbanner{display:block}
 body.report .noreport,body.report .toolbar .tog,body.report #pager,body.report .x,body.report .detailbtns,
-body.report .fpcol,body.report #assetsec,body.report .trunc,body.report .ai,body.report .card[data-sev=live]{display:none!important}
+body.report #assetsec,body.report .trunc,body.report .ai,body.report .card[data-sev=live]{display:none!important}
 body.report .val{cursor:default}
 body.report .meta .tgt{letter-spacing:.1em}
 body.report .code .src{white-space:pre-wrap;word-break:break-all}
@@ -159,7 +159,7 @@ footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
   <div class="card live" data-sev="live"><div class="n">__LIVE__</div><div class="l">Verified live</div></div>
   <div class="card" data-sev="all"><div class="n">__TOTAL__</div><div class="l">Unique findings</div></div>
  </div>
- <div class="rbanner">REPORT MODE · values are censored, paths are relative and dismissed findings are excluded. Click “Exit report mode” to go back.</div>
+ <div class="rbanner">REPORT MODE · values are censored, paths are relative and dismissed findings are excluded. Check the box on any row to pick it, then “Show only picked” to curate exactly what's visible for a screenshot. Click “Exit report mode” to go back.</div>
  <div class="bar">__BAR__</div>
  __AISECTION__
  __TRUNCNOTE__
@@ -176,6 +176,10 @@ footer{color:#48525f;font-size:12px;text-align:center;padding:26px}
   <label class="tog"><input type="checkbox" id="expall" onchange="toggleAll(this.checked)"> Expand all</label>
  <label class="tog"><input type="checkbox" id="hideinv" checked onchange="render();renderExtra()" title="Hide matches that failed their check (bad checksum, IP with no host) or that the local AI judged a false positive"> Hide invalid / AI false positives</label>
   <label class="tog"><input type="checkbox" id="showdis" onchange="render()"> Show dismissed</label>
+  <label class="repctl" id="pickctl" style="display:none;align-items:center;gap:6px;color:var(--mut);font-size:13px;cursor:pointer;user-select:none">
+   <input type="checkbox" id="pickonly" onchange="render()"> Show only picked<span id="pickcount"></span>
+  </label>
+  <button class="btn repctl" id="pickclear" style="display:none" onclick="clearPicks()" title="Unpick everything">Clear picks</button>
   <button class="btn" onclick="copyLive()">Copy live creds</button>
   <button class="btn noreport" onclick="dismissFiltered()" title="Mark every finding matching the current filters as false positive">Dismiss filtered</button>
   <button class="btn noreport" onclick="exportReviewed()">Export reviewed CSV</button>
@@ -209,6 +213,20 @@ const SEVLBL={3:'CRITICAL',2:'HIGH',1:'MEDIUM'};
 const SKEY='exhume-dismissed:'+ROOT;
 let DIS=new Set(); try{DIS=new Set(JSON.parse(localStorage.getItem(SKEY)||'[]'));}catch(e){}
 function saveDis(){try{localStorage.setItem(SKEY,JSON.stringify([...DIS]));}catch(e){}}
+// ---- picking (report mode): choose exactly which findings show on screen, e.g. 2 highs + 1 medium,
+// independent of the severity tab/search/detector filters, so a screenshot shows precisely that mix.
+const PKEY='exhume-picked:'+ROOT;
+let PICK=new Set(); try{PICK=new Set(JSON.parse(localStorage.getItem(PKEY)||'[]'));}catch(e){}
+function savePick(){try{localStorage.setItem(PKEY,JSON.stringify([...PICK]));}catch(e){}}
+function updatePickCount(){
+ const n=PICK.size, c=document.getElementById('pickcount'); if(c) c.textContent=n?(' ('+n+')'):'';
+ const b=document.getElementById('pickclear'); if(b) b.style.display=(REPORT&&n)?'inline-block':'none';
+}
+function clearPicks(){
+ if(!PICK.size) return;
+ if(!confirm('Clear all '+PICK.size.toLocaleString()+' picked finding(s)?')) return;
+ PICK=new Set(); savePick(); updatePickCount(); render(false);
+}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function vbadge(f){
  const ai=f.ai==='real'?' <span class="vbadge v-valid" title="'+esc(f.ai_note||'')+'">AI: real</span>'
@@ -260,6 +278,7 @@ function matchBase(f){
  return true;
 }
 function match(f){
+ if(REPORT && document.getElementById('pickonly').checked) return PICK.has(f.fingerprint);
  if(!matchBase(f)) return false;
  const det=document.getElementById('detsel').value;
  if(det && f.detector!==det) return false;
@@ -322,19 +341,33 @@ function rowFor(f,i){
  const occBadge=occ>1?'<span class="occ" title="This exact value appears in '+occ.toLocaleString()+' places">×'+occ.toLocaleString()+'</span>':'';
  const loc=esc(relPath(f.path))+':'+f.line+(f.col?(':'+f.col):'')+occBadge;
  const dis=DIS.has(f.fingerprint);
+ const picked=PICK.has(f.fingerprint);
+ const fpcell=REPORT
+  ?'<td class="fpcol"><input type="checkbox" class="pickbox" '+(picked?'checked':'')+' title="Pick this one for the screenshot"></td>'
+  :'<td class="fpcol"><button class="x" title="'+(dis?'Restore':'Not a real finding — dismiss')+'">'+(dis?'↺':'✕')+'</button></td>';
  tr.innerHTML='<td><span class="caret">▸</span></td>'
   +'<td><span class="pill p'+f.severity+'">'+SEVLBL[f.severity]+'</span></td>'
   +'<td>'+vb+'</td><td class="det">'+esc(f.detector)+'</td>'
   +'<td class="loc">'+loc+'</td>'
   +'<td><span class="val" title="'+(REPORT?'':'Click to copy')+'">'+esc(showVal(f))+'</span></td>'
-  +'<td class="fpcol"><button class="x" title="'+(dis?'Restore':'Not a real finding — dismiss')+'">'+(dis?'↺':'✕')+'</button></td>';
+  +fpcell;
  let dtr=null;
  tr.addEventListener('click',()=>{
   if(!dtr){ dtr=document.createElement('tr'); dtr.className='detail';
    dtr.innerHTML='<td colspan="7">'+detailHTML(f,i)+'</td>'; tr.after(dtr); tr.classList.add('open'); return; }
   const o=dtr.style.display==='none'; dtr.style.display=o?'':'none'; tr.classList.toggle('open',o);});
  tr.querySelector('.val').addEventListener('click',ev=>{ev.stopPropagation();if(!REPORT)copy(f.value);});
- tr.querySelector('.x').addEventListener('click',ev=>{ev.stopPropagation();setDis([i],!dis);});
+ if(REPORT){
+  tr.querySelector('.pickbox').addEventListener('change',ev=>{
+   ev.stopPropagation();
+   if(ev.target.checked) PICK.add(f.fingerprint); else PICK.delete(f.fingerprint);
+   savePick(); updatePickCount();
+   if(document.getElementById('pickonly').checked) render(false);
+  });
+  tr.querySelector('.pickbox').addEventListener('click',ev=>ev.stopPropagation());
+ } else {
+  tr.querySelector('.x').addEventListener('click',ev=>{ev.stopPropagation();setDis([i],!dis);});
+ }
  return tr;
 }
 function render(resetPage){
@@ -393,6 +426,9 @@ function toggleReport(){
  REPORT=!REPORT; document.body.classList.toggle('report',REPORT);
  const b=document.getElementById('rmode'); b.textContent=REPORT?'Exit report mode':'📷 Report mode'; b.classList.toggle('on',REPORT);
  const t=document.querySelector('.tgt'); if(t) t.textContent=REPORT?'[target hidden]':t.dataset.real;
+ document.getElementById('pickctl').style.display=REPORT?'inline-flex':'none';
+ if(!REPORT) document.getElementById('pickonly').checked=false;
+ updatePickCount();
  render(); renderExtra();
 }
 function goPage(p){page=p;render(false);window.scrollTo({top:0});}
@@ -487,6 +523,7 @@ document.addEventListener('keydown',e=>{
  if(e.key==='/' && document.activeElement!==q){e.preventDefault();q.focus();}
  else if(e.key==='Escape' && document.activeElement===q){q.value='';render();q.blur();}
 });
+updatePickCount();
 render(); renderExtra();
 </script></body></html>"""
 

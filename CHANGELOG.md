@@ -14,6 +14,13 @@ All notable versions of Exhume.
   `backup.zip` produces `backup_exhume_report.html` — useful the moment there's more than one scan
   on disk at once. `smb://`/`docker://`/`s3://` targets are named from what follows the scheme.
   `-o`/`--output` still overrides it explicitly.
+- **Report mode: pick exactly which findings show on screen**, for a screenshot that needs a
+  specific mix (e.g. 2 Critical + 1 Medium, or "all Highs"). Each row now has a checkbox while in
+  report mode; check the ones you want, then turn on "Show only picked" to show precisely that set —
+  it ignores the severity tab, detector and search filters entirely, since the whole point is a
+  curated combination you built across several of those filters. Picks persist across a reload
+  (`localStorage`, scoped per target like the existing dismiss list) and a "Clear picks" button
+  resets them.
 
 ### Fixed
 - **Garbage binary data was still matched by detectors that have no entropy/junk check of their
