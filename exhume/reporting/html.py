@@ -44,6 +44,26 @@ header::before{content:"";display:block;height:3px;margin:-18px -28px 15px;
 .brand .tag{color:var(--mut);font-weight:500;font-size:13px}
 .meta{color:var(--mut);font-size:12.5px;margin-top:7px;line-height:1.6;overflow-wrap:anywhere}
 .meta .tgt{color:#c7cedb;background:var(--panel2);border-radius:5px;padding:1px 6px}
+.meta .mgen{color:#5b6677;font-size:11.5px;margin-left:9px}
+.metachips{display:flex;flex-wrap:wrap;align-items:flex-start;gap:7px;margin-top:9px}
+.mchip{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:3px 11px;
+ font-size:12px;color:var(--mut);display:inline-flex;gap:5px;align-items:center}
+.mchip b{color:var(--txt);font-weight:700;font-variant-numeric:tabular-nums}
+.covdetails{display:inline-block}
+.covdetails summary{list-style:none;cursor:pointer;background:var(--panel2);border:1px solid var(--line);
+ border-radius:999px;padding:3px 11px;font-size:12px;color:var(--mut)}
+.covdetails summary::-webkit-details-marker{display:none}
+.covdetails summary::after{content:" \25BE";color:var(--accent)}
+.covdetails[open] summary::after{content:" \25B4"}
+.covlist{list-style:none;margin:6px 0 0;padding:10px 14px;background:var(--panel2);border:1px solid var(--line);
+ border-radius:10px;font-size:12px;color:var(--mut);display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:4px 14px}
+.covlist b{color:var(--txt);font-variant-numeric:tabular-nums}
+.mnote{margin-top:8px;font-size:12.5px;border-radius:9px;padding:7px 12px;display:inline-block}
+.mnote b{font-variant-numeric:tabular-nums}
+.mnote.warn{background:#1c140a;border:1px solid #5a3d1a;color:#ffcf99}
+.mnote.warn b{color:#ffdca8}
+.mnote.ai{background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.35);color:#c4b5fd;margin-left:8px}
+.mnote.ai b{color:#ded0ff}
 .badge-mask{background:#2a1d10;color:#ffcf99;border:1px solid #5a3d1a;border-radius:6px;padding:1px 7px;font-size:11px;margin-left:8px}
 main{padding:24px 28px 60px;max-width:1600px;margin:0 auto}
 .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:13px;margin-bottom:18px}
@@ -106,6 +126,7 @@ tbody tr:last-child td{border-bottom:none}
 .p2{background:#3a2c12;color:#fcd34d}.p2::before{background:var(--high)}
 .p1{background:#0e2c3f;color:#7dd3fc}.p1::before{background:var(--med)}
 .vbadge{font-weight:800;font-size:12px}.v-live,.v-valid{color:var(--live)}.v-dead,.v-invalid{color:#64748b}
+.v-unknown{color:#5b6677;font-weight:700;cursor:help;border-bottom:1px dotted #5b6677}
 .det{color:var(--txt)}
 .loc{color:var(--mut);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
 .loc{word-break:break-all}
@@ -142,7 +163,6 @@ tr.open .caret{transform:rotate(90deg);color:var(--accent)}
 .code .gutter{color:#475569;text-align:right;padding:1px 12px;user-select:none;min-width:52px;border-right:1px solid var(--line);background:#0b1017}
 .code .src{padding:1px 14px;color:#cbd5e1;white-space:pre}
 mark{background:var(--mark);color:#111;border-radius:3px;padding:0 2px;font-weight:700}
-h2{font-size:15px;margin:26px 0 6px}
 h3{margin:16px 0 4px;color:#cbd5e1;font-size:13.5px}
 .sz{color:#5b6677}
 .asset ul{columns:2;gap:22px;padding-left:18px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
@@ -174,31 +194,41 @@ body.report .val{cursor:default}
 body.report .meta .tgt{letter-spacing:.08em}
 body.report .code .src{white-space:pre-wrap;word-break:break-all}
 .tree details{margin:2px 0}
-.tree summary{cursor:pointer;padding:3px 6px;border-radius:6px;list-style:none;font-size:13px}
+.tree summary{cursor:pointer;padding:5px 8px;border-radius:7px;list-style:none;font-size:13px}
 .tree summary::-webkit-details-marker{display:none}
 .tree summary::before{content:"▸";display:inline-block;width:16px;color:var(--mut);transition:transform .1s}
 .tree details[open]>summary::before{transform:rotate(90deg)}
 .tree summary:hover{background:var(--panel2)}
 .tree .kids{margin-left:14px;border-left:1px solid var(--line);padding-left:8px}
-.tree .file{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;padding:2px 6px 2px 22px;color:#cbd5e1;
- display:flex;justify-content:space-between;gap:14px;word-break:break-all}
+.tree .file{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;padding:4px 8px 4px 22px;color:#cbd5e1;
+ display:flex;justify-content:space-between;gap:14px;word-break:break-all;border-radius:6px}
+.tree .file:hover{background:var(--panel2);color:var(--txt)}
 .tree .cnt{color:var(--mut);font-size:12px;margin-left:6px}
 .tree .more{margin:4px 0 4px 22px}
-.cat>summary{font-weight:700;font-size:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-top:8px}
-.cat .kids{margin-top:4px}
+.cat{margin-top:8px}
+.cat:first-child{margin-top:0}
+.cat>summary{display:flex;align-items:center;gap:10px;font-weight:600;font-size:13.5px;background:var(--panel2);
+ border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.cat>summary::before{align-self:center}
+.cat .icon{font-size:16px;flex-shrink:0}
+.cat .catlabel{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}
+.cat .catdesc{color:var(--mut);font-size:11.5px;font-weight:500}
+.cat .cnt{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:1px 10px;margin-left:0}
+.cat .kids{margin-top:6px;margin-left:8px}
 .empty{color:var(--mut);padding:40px 26px;text-align:center;font-size:13.5px}
 footer{color:#48525f;font-size:12px;text-align:center;padding:30px 26px;border-top:1px solid var(--line);margin-top:30px}
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(6px);background:var(--accent);color:#fff;
  padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;opacity:0;box-shadow:var(--shadow);
  transition:opacity .2s,transform .2s;pointer-events:none;z-index:50}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.ai{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:18px;overflow:hidden;box-shadow:var(--shadow)}
-.ai .hd{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:#10151e}
-.ai .hd .t{font-weight:700;font-size:14px;color:var(--txt)}
-.ai .hd .tag{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);
+.ai,.assetpanel{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:18px;overflow:hidden;box-shadow:var(--shadow)}
+.ai .hd,.assetpanel .hd{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:#10151e}
+.ai .hd .t,.assetpanel .hd .t{font-weight:700;font-size:14px;color:var(--txt)}
+.ai .hd .tag,.assetpanel .hd .tag{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);
  border:1px solid var(--line);border-radius:999px;padding:2px 9px}
-.ai .hd .by{color:#5b6677;font-size:11.5px;margin-left:auto}
+.ai .hd .by,.assetpanel .hd .by{color:#5b6677;font-size:11.5px;margin-left:auto}
 .ai .bd{padding:4px 18px 14px}
+.assetpanel .bd{padding:10px 14px 14px}
 .ai h3{color:var(--mut);margin:14px 0 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
 .ai ul{margin:4px 0;padding:0;list-style:none}
 .ai li{margin:5px 0;color:#cfd6e2;padding-left:16px;position:relative}
@@ -321,9 +351,16 @@ function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;'
 function vbadge(f){
  const ai=f.ai==='real'?' <span class="vbadge v-valid" title="'+esc(f.ai_note||'')+'">AI: real</span>'
   :(f.ai==='false'?' <span class="vbadge v-invalid" title="'+esc(f.ai_note||'')+'">AI: false positive</span>':'');
+ // "unknown" means this detector has no deterministic check at all (a password, a generic secret,
+ // a phone number — there's no checksum or live host to test), so only the AI judges it. Showing
+ // nothing here (the old behavior) looked like a missing/broken badge next to rows that DO have a
+ // VALID/invalid one; an explicit dash makes the difference a fact about the data type, not a glitch.
  return ({live:'<span class="vbadge v-live">● LIVE</span>',dead:'<span class="vbadge v-dead">● dead</span>',
   valid:'<span class="vbadge v-valid" title="Passed its check (checksum OK / host answers)">● VALID</span>',
-  invalid:'<span class="vbadge v-invalid" title="Failed its check (bad checksum / no host answered)">● invalid</span>'}[f.verified]||'')+ai;
+  invalid:'<span class="vbadge v-invalid" title="Failed its check (bad checksum / no host answered)">● invalid</span>',
+  unknown:'<span class="vbadge v-unknown" title="This type has no automated check (e.g. a password or '
+         +'generic secret has no checksum, no host to contact) — only the AI judges it">— n/a</span>'
+  }[f.verified]||'')+ai;
 }
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1300);}
 function copy(txt){navigator.clipboard.writeText(txt).then(()=>toast('Copied')).catch(()=>toast('Copy failed'));}
@@ -589,22 +626,38 @@ function renderNode(node,box){
  addFiles(0);
 }
 function renderExtra(){
- const titles={key_material:'Key material',sensitive_name:'Sensitive filenames',database:'Databases',
-  executable:'Executables',archive:'Archives',config:'Config files',git_history:'Git history'};
- const as=DATA.assets||{}; const box=document.createElement('div'); box.id='assetsec'; box.className='tree';
- let any=false;
+ const meta={key_material:['Key material','🔑','Certificates, keystores and private-key files'],
+  sensitive_name:['Sensitive filenames','👁️','Named like something worth a closer look (backup, dump, secrets…)'],
+  database:['Databases','🗄️','Opened to list tables and sensitive-looking columns'],
+  executable:['Executables','⚙️','Compiled binaries and scripts'],
+  archive:['Archives','📦','Zip/tar/7z and similar — unpacked and scanned inside'],
+  config:['Config files','🧾','.env, .yml, .conf and other configuration'],
+  git_history:['Git history','🕐','Found only in a commit, not the working tree']};
+ const as=DATA.assets||{};
  const hideAI=document.getElementById('hideinv').checked||REPORT;
- for(const k in titles){ const items=(as[k]||[]).filter(i=>!(hideAI&&i.ai==='false')); if(!items.length) continue; any=true;
+ const cats=[]; let totalItems=0;
+ for(const k in meta){ const items=(as[k]||[]).filter(i=>!(hideAI&&i.ai==='false')); if(items.length){cats.push([k,items]); totalItems+=items.length;} }
+ const ex=document.getElementById('extra'); ex.innerHTML='';
+ if(!cats.length) return;
+ const wrap=document.createElement('div'); wrap.id='assetsec'; wrap.className='assetpanel';
+ wrap.innerHTML='<div class="hd"><span class="t">Detected assets</span>'
+  +'<span class="tag">non-secret, worth a look</span>'
+  +'<span class="by">'+totalItems.toLocaleString()+' item(s) in '+cats.length+' categor'+(cats.length===1?'y':'ies')+'</span></div>'
+  +'<div class="bd tree"></div>';
+ const box=wrap.querySelector('.bd');
+ cats.forEach(([k,items])=>{
+  const [title,icon,desc]=meta[k];
   const det=document.createElement('details'); det.className='cat';
-  det.innerHTML='<summary>'+titles[k]+'<span class="cnt">'+items.length.toLocaleString()+'</span></summary><div class="kids"></div>';
+  det.innerHTML='<summary><span class="icon">'+icon+'</span><span class="catlabel">'+esc(title)
+   +'<span class="catdesc">'+esc(desc)+'</span></span><span class="cnt">'+items.length.toLocaleString()+'</span></summary>'
+   +'<div class="kids"></div>';
   let built=false;
   det.addEventListener('toggle',()=>{ if(det.open&&!built){built=true;
    const kids=det.querySelector('.kids');
    if(k==='database') dbHTML(kids,items);
    renderNode(buildTrie(items),kids); } });
-  box.appendChild(det); }
- const ex=document.getElementById('extra'); ex.innerHTML='';
- if(any){ const h=document.createElement('h2'); h.textContent='Detected assets'; ex.appendChild(h); ex.appendChild(box); }
+  box.appendChild(det); });
+ ex.appendChild(wrap);
 }
 function dbHTML(kids,items){
  const paths=new Set(items.map(i=>i.path)); let h='';
@@ -729,26 +782,55 @@ def write_html(payload: dict, path: str, max_findings: int = HTML_MAX_DEFAULT) -
            f"<i style='width:{c2 / total * 100:.1f}%;background:var(--high)'></i>"
            f"<i style='width:{c1 / total * 100:.1f}%;background:var(--med)'></i>")
     supp = rs.get("suppressed_by_baseline", 0)
-    supp_note = f" · {supp} hidden by baseline" if supp else ""
-    occ_note = f" ({rs['total_occurrences']:,} occurrences, deduplicated by value)" if rs.get(
-        "total_occurrences", 0) > rs["total_findings"] else ""
-    metaline = (f"Target: <b class=\"tgt\" data-real=\"{_h.escape(m['target'], quote=True)}\">{_h.escape(m['target'])}</b>"
-                f" · {m['files_scanned']} scanned / "
-                f"{m['files_seen']} seen · {m['nested']} nested · {m['git_blobs']} git-history · "
-                f"{m['seconds']}s{supp_note} · {_h.escape(m['generated'])} · v{m['version']}{occ_note}")
+
+    def chip(value: str, label: str, title: str = "", cls: str = "") -> str:
+        t = f' title="{_h.escape(title, quote=True)}"' if title else ""
+        c = f" {cls}" if cls else ""
+        return f'<span class="mchip{c}"{t}><b>{_h.escape(value)}</b>{_h.escape(label)}</span>'
+
+    chips = [chip(f"{m['files_scanned']:,}/{m['files_seen']:,}", " scanned",
+                 "Files whose content was actually read and scanned, out of every file/entry seen")]
+    if m["nested"]:
+        chips.append(chip(f"{m['nested']:,}", " nested", "Found inside an archive or container"))
+    if m["git_blobs"]:
+        chips.append(chip(f"{m['git_blobs']:,}", " in git history"))
+    if rs.get("total_occurrences", 0) > rs["total_findings"]:
+        chips.append(chip(f"{rs['total_occurrences']:,}→{rs['total_findings']:,}", " deduped",
+                          "That many raw occurrences collapsed to this many unique values"))
+    if supp:
+        chips.append(chip(f"{supp:,}", " hidden by baseline", "Already known from a previous scan's baseline"))
+    chips.append(chip(f"{m['seconds']}s", " elapsed"))
+
     cov = m.get("coverage") or {}
     _lbl = {"scanned": "content scanned", "archives": "archives unpacked", "media_skipped": "media skipped",
             "binary_skipped": "binary skipped", "document_failed": "documents unreadable",
             "ocr_unavailable": "images without OCR",
             "too_big": "too big", "timeout": "timed out", "error": "errors"}
-    cov_parts = [f"{v:,} {_lbl.get(k, k)}" for k, v in cov.items() if v]
-    if cov_parts:
-        metaline += "<br>Coverage: " + " · ".join(cov_parts)
+    cov_rows = "".join(f"<li><b>{v:,}</b> {_lbl.get(k, k)}</li>" for k, v in cov.items() if v)
+    cov_html = (f'<details class="covdetails"><summary>Coverage breakdown</summary>'
+               f'<ul class="covlist">{cov_rows}</ul></details>') if cov_rows else ""
+
+    hidden_html = ""
     if inv:
-        metaline += (f"<br>{inv:,} matches hidden by default: failed validation (checksum / no host) "
-                     f"or judged false positives by the local AI ({rs.get('ai_false', 0):,})")
-    if m.get("ai_engine"):
-        metaline += f"<br>AI filter: {_h.escape(m['ai_engine'])}"
+        ai_false = rs.get("ai_false", 0)
+        checksum_fail = inv - ai_false
+        hidden_html = (
+            f'<div class="mnote warn" title="These are excluded from the counts and table above by '
+            f'default — turn on &quot;Show dismissed&quot; / untick &quot;Hide invalid&quot; to see them">'
+            f'<b>{inv:,}</b> hidden by default: <b>{checksum_fail:,}</b> failed their check '
+            f'(bad checksum / no host answered)'
+            + (f', <b>{ai_false:,}</b> judged false positive by the local AI' if ai_false else "")
+            + "</div>"
+        )
+    ai_html = (f'<div class="mnote ai">AI filter: <b>{_h.escape(m["ai_engine"])}</b></div>'
+              if m.get("ai_engine") else "")
+
+    metaline = (
+        f'Target: <b class="tgt" data-real="{_h.escape(m["target"], quote=True)}">{_h.escape(m["target"])}</b>'
+        f'<span class="mgen">generated {_h.escape(m["generated"])} · v{m["version"]}</span>'
+        f'<div class="metachips">{"".join(chips)}{cov_html}</div>'
+        f'{hidden_html}{ai_html}'
+    )
     mask_badge = '<span class="badge-mask">MASKED</span>' if m.get("masked") else ""
 
     all_f = payload["findings"]

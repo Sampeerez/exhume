@@ -183,3 +183,31 @@ def test_ai_triage_bold_markdown_is_rendered_in_html():
     out = _md_to_html("## Fastest paths to access\n- **AWS Credentials**: rotate immediately.")
     assert "<strong>AWS Credentials</strong>" in out
     assert "**" not in out
+
+
+def test_html_has_unknown_verified_badge_and_metachips(tmp_path):
+    """Some detectors (passwords, generic secrets, phone numbers) have no checksum or host to
+    test, so they only ever carry an AI verdict — this used to render as a blank gap next to
+    rows that DO have a VALID/invalid badge, which looked like a missing/broken badge rather
+    than a fact about that data type. A reported point of confusion ("por que en algunos pone
+    valid ai real y en otros ai real??"). Also checks the metadata line was broken up into
+    scannable chips instead of one dense wall of pipe-separated text."""
+    p = tmp_path / "r.html"
+    write_html(build_payload(_sample_results(), _stats()), str(p))
+    html = p.read_text()
+    assert "v-unknown" in html and "n/a" in html
+    assert "metachips" in html and "mchip" in html
+    assert "covdetails" in html
+
+
+def test_detected_assets_title_and_tree_share_one_hideable_wrapper(tmp_path):
+    """Report mode hides #assetsec — the old code appended the "Detected assets" <h2> as a
+    SEPARATE sibling before the #assetsec tree box, so the title stayed visible with nothing
+    under it once the box was hidden (reported bug: "sigue saliendo el titulo de Detected
+    assets" in report mode). Both the title and the tree must now live inside one element
+    carrying that id, so hiding it hides the whole section including its heading."""
+    p = tmp_path / "r.html"
+    write_html(build_payload(_sample_results(), _stats()), str(p))
+    html = p.read_text()
+    assert "wrap.id='assetsec'" in html
+    assert "ex.appendChild(h); ex.appendChild(box)" not in html

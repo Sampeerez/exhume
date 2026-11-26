@@ -173,7 +173,12 @@ class LlamaEngine:
 
     def __init__(self, model_path: str):
         from llama_cpp import Llama  # type: ignore
-        self._llm = Llama(model_path=model_path, n_ctx=4096, n_threads=os.cpu_count() or 4,
+        # n_ctx=4096 was too tight for the triage prompt (exhume.ai._build_prompt): a scan with
+        # many deeply-nested paths could build an ~80-finding prompt north of 9000 tokens, which
+        # silently failed the whole triage summary. 8192 gives real headroom for that single big
+        # prompt while staying cheap for a 3B model; the per-match judging calls this engine also
+        # serves are only a few hundred tokens each regardless of this ceiling.
+        self._llm = Llama(model_path=model_path, n_ctx=8192, n_threads=os.cpu_count() or 4,
                           n_gpu_layers=-1, verbose=False)
         self._real = self._llm.tokenize(b"REAL", add_bos=False)[0]
         self._false = self._llm.tokenize(b"FALSE", add_bos=False)[0]

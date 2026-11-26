@@ -28,6 +28,57 @@ def test_prompt_is_masked_and_structured():
     assert "VERIFIED-LIVE" in prompt
 
 
+def test_short_path_keeps_filename_and_near_parents():
+    long_path = ("/Users/sperez/Desktop/DISA/copia_shares/10.158.14.102_DIGA-CO-00005246-General-"
+                "Agencias_Propias_TFE-Icod$/GAPO - ICOD (TF003)/9. FACTURAS AUTORIZADAS/APROLIS/2023/"
+                "ABONO BOCINA CARRETILLA 1.pdf")
+    short = ai._short_path(long_path)
+    assert short == ".../2023/ABONO BOCINA CARRETILLA 1.pdf"
+    assert ai._short_path("a.env") == "a.env"
+    assert ai._short_path("dir/a.env") == "dir/a.env"
+
+
+def test_build_prompt_path_is_shortened_not_full_absolute():
+    results = _results()
+    results[0].path = results[0].findings[0].path = (
+        "/very/deeply/nested/audit/share/structure/with/many/folders/secret.env")
+    prompt = ai._build_prompt(results)
+    assert "/very/deeply/nested" not in prompt
+    assert "folders/secret.env" in prompt
+
+
+def test_triage_retries_with_fewer_findings_when_prompt_overflows_context():
+    """A scan with many long, deeply-nested paths can still build a triage prompt bigger than
+    the model's context window even after shortening paths — reported as "no AI summary at all"
+    on a real ~75k-file scan, caused by this exact overflow being silently swallowed. triage()
+    must retry with progressively fewer findings instead of giving up on the first failure."""
+
+    class OverflowThenOkEngine:
+        name = "fake"
+        calls = []
+
+        def generate(self, system, user, max_tokens=380):
+            # Count how many finding lines made it into this attempt's prompt.
+            n = user.count("value=")
+            self.calls.append(n)
+            if n > 10:
+                raise ValueError(f"Requested tokens exceed context window ({n} findings)")
+            return "## Executive summary\nSmaller prompt accepted.\n"
+
+    results = []
+    for i in range(50):
+        f = Finding(detector="Public IPv4", severity=Severity.MEDIUM, line=1,
+                    redacted=f"1.2.3.{i}", context=f"ip={i}", path=f"/a/b/c/d/e/f{i}.txt")
+        results.append(FileResult(path=f"/a/b/c/d/e/f{i}.txt", name=f"f{i}.txt", ext=".txt",
+                                  size=10, findings=[f]))
+    eng = OverflowThenOkEngine()
+    res = ai.triage(results, "http://localhost:11434", engine=eng)
+    assert res is not None
+    assert "Smaller prompt accepted" in res["summary"]
+    assert eng.calls[0] == 50          # first attempt used the full set and overflowed
+    assert eng.calls[-1] <= 10         # eventually retried small enough to succeed
+
+
 def test_triage_with_mocked_ollama(monkeypatch):
     def fake_available(url):
         return ["llama3.2"]

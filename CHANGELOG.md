@@ -4,6 +4,49 @@ All notable versions of Exhume.
 
 ## [Unreleased]
 
+### Fixed (AI triage summary silently missing on large scans)
+Reported: a 75k-file scan showed `AI filter: bundled Qwen2.5-3B` (so the model clearly ran and
+filtered 3,798 false positives) but the "Triage summary" section never appeared, with no error
+anywhere. Root-caused by reproducing the exact shape of that scan:
+- `exhume.ai._build_prompt` lists up to 80 of the highest-priority findings for the one-shot
+  triage summary, each with its **full absolute path**. On a deeply nested real share (`.../
+  10.158.14.102_DIGA-CO-.../GAPO - ICOD (TF003)/9. FACTURAS AUTORIZADAS/APROLIS/2023/...`), 80 such
+  lines alone built a ~9,400-token prompt — more than double the bundled engine's 4,096-token
+  context window. `create_chat_completion` raised, and `triage()`'s `except Exception: text = ""`
+  swallowed it completely, silently.
+- Paths in that listing are now shortened to the filename and its closest parent folder(s)
+  (`exhume.ai._short_path`) instead of the full path — the model only needs to say where
+  something is, not replay the whole audited tree's directory structure 80 times over.
+- The bundled engine's context window is raised from 4096 to 8192 tokens (cheap for a 3B model,
+  real headroom for this one large prompt — the per-match judging calls it also serves are only a
+  few hundred tokens each regardless of this ceiling).
+- Belt and suspenders: `triage()` now retries with progressively fewer findings (80 → 40 → 20 → 10
+  → 5 → 2) if the prompt still doesn't fit, instead of giving up after one attempt — a summary is
+  now produced for literally any scan size, just a coarser one for a pathological case.
+- If triage still can't produce a summary, the console now says so explicitly instead of staying
+  silent, so "no summary" is never again a silent, unexplained gap.
+
+### Changed (HTML report clarity pass)
+Requested after a real scan's report looked like a wall of text ("quiero que aquí salga todo mucho
+más claro"):
+- **The dense, pipe-separated metadata line is now a row of labelled chips** (files scanned,
+  nested, git-history, dedup ratio, elapsed time), a collapsible "Coverage breakdown" for the
+  per-category skip counts (binary/media/OCR-unavailable/too-big/archives/unreadable), and a
+  distinct amber note for what's hidden by default, broken into *why* (failed its check vs.
+  judged false by the AI) instead of one run-on sentence.
+- **Clarified why some rows show "● VALID AI: real" and others only "AI: real"** (reported
+  confusion). A password, a generic high-entropy secret or a phone number has no checksum or host
+  to test — there never was a missing badge, that type simply has no deterministic check, only the
+  AI's judgment. The Verified column now says so explicitly ("— n/a", with a tooltip) instead of
+  leaving a blank gap that looked like a glitch next to rows that do have a VALID/invalid badge.
+- **"Detected assets" redesigned**: a bordered panel matching the Triage summary card's style, an
+  icon and one-line description per category (key material, sensitive filenames, databases,
+  executables, archives, config files, git history) instead of a plain list of category names.
+- **Fixed: the "Detected assets" title stayed on screen in report mode with nothing under it.**
+  The heading was appended as a sibling *before* the hideable tree box instead of inside it, so
+  hiding the box in report mode left an orphaned heading. Both now live in one element, so report
+  mode hides the whole section, heading included.
+
 ### Added
 - **Phone number detector**: a labelled national number (`Teléfono:`, `Móvil:`, `Fax:`, …) or a
   standalone international `+CC …` number, checked offline (digit count, not a repeated-digit

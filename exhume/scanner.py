@@ -411,6 +411,9 @@ class Scanner:
                 self.stats.ai_summary = res["summary"]
                 self.stats.ai_model = res["model"]
                 eprint(f"{Colors.M}AI triage: {res['model']} summarized the findings.{Colors.END}")
+            elif self._get_engine() is not None:
+                eprint(f"{Colors.Y}AI triage: the local model could not produce a report-level "
+                       f"summary for this scan (per-match AI judging above is unaffected).{Colors.END}")
         if cfg.write_baseline_file:
             n = baseline.write_fingerprints(cfg.write_baseline_file, results)
             eprint(f"{Colors.GR}Baseline written: {n} fingerprint(s) -> {cfg.write_baseline_file}{Colors.END}")

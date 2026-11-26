@@ -118,18 +118,29 @@ def _masked_context(f) -> str:
     return ctx
 
 
-def _build_prompt(results: list[FileResult]) -> str:
+def _short_path(path: str, keep: int = 2) -> str:
+    """Keep only the filename and its closest parent folder(s). A real audit target can be
+    nested many directories deep with long, descriptive folder names — multiplied across up to
+    _MAX_FINDINGS lines, the full absolute path was the single biggest contributor to a triage
+    prompt silently blowing the model's context window (see the retry ladder in `triage`)."""
+    parts = [p for p in path.replace("\\", "/").split("/") if p]
+    if len(parts) <= keep:
+        return path
+    return ".../" + "/".join(parts[-keep:])
+
+
+def _build_prompt(results: list[FileResult], max_groups: int = _MAX_FINDINGS) -> str:
     # The same value seen in many places is one real-world issue, not several — the model
     # should talk about ONE leaked password used everywhere, not list it N times.
     findings = [f for r in results for f in r.findings if not f.hidden]
     groups = sorted(group_findings(findings), key=group_sort_key)
     lines = []
-    for i, g in enumerate(groups[:_MAX_FINDINGS], 1):
+    for i, g in enumerate(groups[:max_groups], 1):
         f = g.rep
         v = {Verified.LIVE: "VERIFIED-LIVE", Verified.DEAD: "dead"}.get(f.verified, "unverified")
         ctx = _masked_context(f)
         spread = f" (seen in {g.count} places)" if g.count > 1 else ""
-        lines.append(f"{i}. [{f.severity.label}][{v}] {f.detector} @ {f.path}:{f.line}{spread} "
+        lines.append(f"{i}. [{f.severity.label}][{v}] {f.detector} @ {_short_path(f.path)}:{f.line}{spread} "
                      f"value={f.redacted} ctx={ctx!r}")
     listing = "\n".join(lines) if lines else "(no findings)"
 
@@ -139,7 +150,7 @@ def _build_prompt(results: list[FileResult]) -> str:
     for r in dbs[:10]:
         di = r.db_info or {}
         insight = f" — {di['ai_insight']}" if di.get("ai_insight") else ""
-        db_lines.append(f"- {r.path}: {', '.join(di.get('sensitive_columns', [])[:6])}{insight}")
+        db_lines.append(f"- {_short_path(r.path)}: {', '.join(di.get('sensitive_columns', [])[:6])}{insight}")
     db_block = (f"\n\nDatabases with sensitive-looking columns ({len(dbs)} total):\n" + "\n".join(db_lines)
                if db_lines else "")
 
@@ -147,7 +158,7 @@ def _build_prompt(results: list[FileResult]) -> str:
     return (
         f"{overview}\n\n"
         f"Findings from an authorized audit, highest priority first "
-        f"(showing up to {_MAX_FINDINGS} unique values):\n{listing}{db_block}\n\n"
+        f"(showing up to {max_groups} unique values):\n{listing}{db_block}\n\n"
         "Rules: only findings tagged [VERIFIED-LIVE] are confirmed working; every other finding is "
         "UNVERIFIED and must be described as such. \"(seen in N places)\" means that exact value was "
         "found in N different locations — call out the blast radius for widely-repeated secrets. "
@@ -195,10 +206,19 @@ def triage(results: list[FileResult], ai_url: str, model: str = "", engine=None)
     otherwise a running Ollama server is used.
     """
     if engine is not None and hasattr(engine, "generate"):
-        try:
-            text = engine.generate(_SYSTEM, _build_prompt(results), max_tokens=380).strip()
-        except Exception:
-            text = ""
+        # A large scan with many long, deeply-nested paths can still overflow the model's
+        # context window even after shortening paths (_short_path) and giving the engine a
+        # generous n_ctx (LlamaEngine) — rather than silently giving up (the prompt alone used
+        # to exceed 4096 tokens on a real ~75k-file scan), shrink the number of findings shown
+        # and retry, so a summary is produced for literally any scan size, just a less detailed
+        # one for a pathological case.
+        text = ""
+        for cap in (_MAX_FINDINGS, 40, 20, 10, 5, 2):
+            try:
+                text = engine.generate(_SYSTEM, _build_prompt(results, max_groups=cap), max_tokens=380).strip()
+                break
+            except Exception:
+                text = ""
         if text:
             text = _verified_live_guard(_no_findings_guard(text, results), results)
             return {"model": getattr(engine, "name", "local AI"), "summary": text}
