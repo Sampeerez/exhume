@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import sys
 
 from . import __version__
@@ -12,6 +14,24 @@ from .reporting import print_report, write_outputs
 from .scanner import Scanner
 
 _BANNER = "  exhume · secrets discovery & verification\n"
+
+_REMOTE_SCHEMES = ("smb://", "docker://", "s3://")
+
+
+def derive_output_prefix(target: str) -> str:
+    """Name the report after what was actually scanned, e.g. ``copia_shares_exhume_report.html``
+    instead of a plain ``exhume_report.html`` that gives no hint which of several scans it is."""
+    t = target.rstrip("/\\")
+    for scheme in _REMOTE_SCHEMES:
+        if t.startswith(scheme):
+            t = t[len(scheme):]
+            break
+    else:
+        if os.path.exists(t):
+            t = os.path.abspath(t)
+    base, _ext = os.path.splitext(os.path.basename(t.rstrip("/\\")) or t)
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("_.")
+    return f"{safe}_exhume_report" if safe else "exhume_report"
 
 _EPILOG = """\
 Examples:
@@ -37,7 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter, epilog=_EPILOG,
     )
     p.add_argument("target", help="Folder, SMB (mounted or smb://), docker://img, s3://bucket, file or git repo")
-    p.add_argument("-o", "--output", default="exhume_report", help="Output file prefix")
+    p.add_argument("-o", "--output", default=None,
+                   help="Output file prefix (default: named after the scanned file/folder)")
     p.add_argument("--version", action="version", version=f"exhume {__version__}")
 
     out = p.add_argument_group("output")
@@ -133,8 +154,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def args_to_config(a: argparse.Namespace) -> Config:
+    output_prefix = a.output if a.output else derive_output_prefix(a.target)
     cfg = Config(
-        target=a.target, output_prefix=a.output,
+        target=a.target, output_prefix=output_prefix,
         want_html=not a.no_html, want_json=a.json, want_sarif=a.sarif, want_csv=not a.no_csv,
         open_report=not a.no_open, max_size_mb=a.max_size, min_entropy=a.min_entropy,
         max_depth=a.max_depth, archive_max_mb=a.archive_max_mb, archive_max_files=a.archive_max_files,

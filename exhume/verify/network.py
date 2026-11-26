@@ -97,6 +97,23 @@ def _ptr(ip: str) -> str | None:
         return None
 
 
+# Major cloud providers auto-assign a reverse-DNS (PTR) record to EVERY public IP in these ranges
+# the moment it's allocated to the pool, whether or not anyone has ever deployed anything on it. A
+# PTR here is proof the number is real, allocated IP space — not proof the specific IP was ever
+# actually referenced as infrastructure. A `3.4.4.2` sitting in a PDF's numbered section list will
+# resolve exactly like this, which previously made it look network-"VALID" on no real evidence.
+_AUTO_PTR_SUFFIXES = (
+    ".compute.amazonaws.com", ".compute-1.amazonaws.com", ".compute.internal",
+    ".cloudapp.azure.com", ".cloudapp.net", ".azure.com",
+    ".bc.googleusercontent.com", ".googleusercontent.com", ".googleapis.com",
+)
+
+
+def is_auto_assigned_ptr(hostname: str) -> bool:
+    h = hostname.lower()
+    return any(h.endswith(suf) for suf in _AUTO_PTR_SUFFIXES)
+
+
 def verify_ip(ip: str) -> tuple[Verified, str]:
     ip = ip.strip()
     try:
@@ -110,6 +127,10 @@ def verify_ip(ip: str) -> tuple[Verified, str]:
         return Verified.VALID, hit
     name = _ptr(ip)
     if name:
+        if is_auto_assigned_ptr(name):
+            return (Verified.UNKNOWN, f"reverse DNS: {name} (auto-assigned by the cloud provider to "
+                                      "every IP in this range — not proof this specific address was "
+                                      "ever actually used, since no port answered)")
         return Verified.VALID, f"reverse DNS: {name}"
     if addr.is_private or addr.is_link_local:
         return (Verified.UNKNOWN, "private address: not reachable from this machine, which is expected "

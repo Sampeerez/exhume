@@ -105,3 +105,35 @@ def test_reachable_private_ip_is_still_valid(monkeypatch):
     monkeypatch.setattr(network, "_tcp_probe", lambda ip: "port 22 open")
     status, detail = network.verify_ip("10.0.0.5")
     assert status is Verified.VALID and "port 22 open" in detail
+
+
+def test_cloud_auto_ptr_is_unknown_not_valid(monkeypatch):
+    """A PTR like ec2-3-4-4-2.us-west-2.compute.amazonaws.com is auto-assigned by AWS to EVERY IP
+    in the range the moment it's allocated — it's proof the address is real AWS space, not proof
+    this specific number was ever used as an address. This is the exact bug reported: a 3.4.4.2
+    sitting in a manual's table of contents got a real AWS reverse-DNS hit and was shown as VALID."""
+    from exhume.models import Verified
+    from exhume.verify import network
+    monkeypatch.setattr(network, "_tcp_probe", lambda ip: None)
+    monkeypatch.setattr(network, "_ptr", lambda ip: "ec2-3-4-4-2.us-west-2.compute.amazonaws.com")
+    status, detail = network.verify_ip("3.4.4.2")
+    assert status is Verified.UNKNOWN
+    assert "auto-assigned by the cloud provider" in detail
+
+
+def test_genuine_reverse_dns_is_still_valid(monkeypatch):
+    from exhume.models import Verified
+    from exhume.verify import network
+    monkeypatch.setattr(network, "_tcp_probe", lambda ip: None)
+    monkeypatch.setattr(network, "_ptr", lambda ip: "dns.google")
+    status, detail = network.verify_ip("8.8.8.8")
+    assert status is Verified.VALID and "reverse DNS: dns.google" in detail
+
+
+def test_is_auto_assigned_ptr_covers_major_cloud_providers():
+    from exhume.verify.network import is_auto_assigned_ptr
+    assert is_auto_assigned_ptr("ec2-3-4-4-2.us-west-2.compute.amazonaws.com")
+    assert is_auto_assigned_ptr("vm123.westeurope.cloudapp.azure.com")
+    assert is_auto_assigned_ptr("123.45.67.89.bc.googleusercontent.com")
+    assert not is_auto_assigned_ptr("dns.google")
+    assert not is_auto_assigned_ptr("mail.example.com")

@@ -523,7 +523,7 @@ class Scanner:
             self.stats.ai_filter = st
             eprint(f"{Colors.GR}AI ({self.stats.ai_engine}): {st['real']} real, {st['false']} false positives "
                    f"hidden ({st['asked']} model calls, {st['labeled']} already labelled, "
-                   f"{st['cached']} remembered, {st['inherited']} inherited"
+                   f"{st['listed']} numbered-list, {st['cached']} remembered, {st['inherited']} inherited"
                    f"{', ' + str(st['skipped']) + ' not judged' if st['skipped'] else ''}).{Colors.END}")
         if has_assets:
             sa = ai_filter.judge_assets(results, engine)

@@ -43,7 +43,7 @@ FALSE_THRESHOLD = 0.85   # confidence needed before a match is hidden as a false
 # Bumped whenever the judging prompt/shots/context strategy changes materially: it's baked into
 # the verdict cache key, so an improvement (or a fix to a bad verdict) takes effect immediately
 # instead of being masked by a stale cached answer from the old prompt.
-PROMPT_VERSION = 4
+PROMPT_VERSION = 5
 
 # Detectors whose matches are ambiguous without context. Provider-specific tokens
 # (AWS, GitHub, ...) and live-verified credentials are never second-guessed.
@@ -485,6 +485,24 @@ def _has_strong_label(f: Finding) -> bool:
     return bool(pat and pat.search(_own_line(f)))
 
 
+# A dotted-number IP match sitting among SEVERAL other lines that are themselves dotted section
+# numbers ("3.4.4", "3.4.5.1"...) is a manual's table of contents or numbered clauses, not network
+# data — reliably so, regardless of how garbled/spaced the surrounding prose reads (a real scan
+# showed the AI judge itself reading "3.4.4.2 Pulsador de disparo..." as REAL, because the spaced-out
+# PDF-extraction text ("e me rgencia") gave it little to go on; the numbering pattern across several
+# neighboring lines is a much more reliable, checkable signal than asking the model to parse that).
+_SECTION_NUM = re.compile(r"^\s*\d{1,3}(?:\.\d{1,3}){1,4}\b")
+_SECTION_LIST_MIN_HITS = 2
+
+
+def _looks_like_numbered_list(f: Finding) -> bool:
+    if _kind(f) != "ip":
+        return False
+    others = [t for n, t in (f.context_block or []) if n != f.line]
+    hits = sum(1 for t in others if _SECTION_NUM.match(t.strip()))
+    return hits >= _SECTION_LIST_MIN_HITS
+
+
 def _ctx_key(f: Finding) -> tuple:
     return (f.detector, _DIGITS.sub("#", f.context or "")[:160], os.path.splitext(f.path)[1].lower())
 
@@ -497,8 +515,8 @@ def _label(f: Finding, verdict: str, how: str) -> None:
 def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
     """Judge ambiguous findings in place. Returns counters for reporting."""
     cand = [f for r in results for f in r.findings if _is_judged(f)]
-    stats = {"candidates": len(cand), "asked": 0, "cached": 0, "labeled": 0, "real": 0, "false": 0,
-             "inherited": 0, "skipped": 0}
+    stats = {"candidates": len(cand), "asked": 0, "cached": 0, "labeled": 0, "listed": 0, "real": 0,
+             "false": 0, "inherited": 0, "skipped": 0}
     if not cand:
         return stats
     # most severe / most relevant first so the call budget is spent where it matters
@@ -523,6 +541,12 @@ def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
             by_value[k1] = by_ctx[k2] = "real"
             _label(f, "real", "explicit label on its own line (e.g. IP=/DNI=) — not sent to the model")
             return "real"
+        if _looks_like_numbered_list(f):
+            stats["listed"] += 1
+            by_value[k1] = by_ctx[k2] = "false"
+            _label(f, "false", "sits among several dotted section numbers (a manual's table of "
+                               "contents/clauses) — not sent to the model")
+            return "false"
         old = vcache.get(f)
         if old:
             stats["cached"] += 1
@@ -566,6 +590,11 @@ def judge(results: list[FileResult], engine, max_calls: int = 4000) -> dict:
                     stats["labeled"] += 1
                     _label(f, "real", "explicit label on its own line (e.g. IP=/DNI=) — not sent to the model")
                     v = "real"
+                elif _looks_like_numbered_list(f):
+                    stats["listed"] += 1
+                    _label(f, "false", "sits among several dotted section numbers (a manual's table "
+                                       "of contents/clauses) — not sent to the model")
+                    v = "false"
                 else:
                     v = by_value.get((f.detector, f.secret)) or verdicts[0]
                     _label(f, v, f"same as {len(verdicts)} sampled matches in this file ({name})")

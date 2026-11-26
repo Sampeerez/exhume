@@ -9,6 +9,11 @@ All notable versions of Exhume.
   standalone international `+CC …` number, checked offline (digit count, not a repeated-digit
   pattern, not a calendar date mistaken for a number) and, when ambiguous, judged in context by
   the local AI like every other PII detector.
+- **The report is now named after what was actually scanned** instead of the generic
+  `exhume_report.html`, e.g. scanning `copia_shares/` produces `copia_shares_exhume_report.html` and
+  `backup.zip` produces `backup_exhume_report.html` — useful the moment there's more than one scan
+  on disk at once. `smb://`/`docker://`/`s3://` targets are named from what follows the scheme.
+  `-o`/`--output` still overrides it explicitly.
 
 ### Fixed
 - **Garbage binary data was still matched by detectors that have no entropy/junk check of their
@@ -80,6 +85,23 @@ then re-validated with a 16-case regression battery covering every detector the 
   was actually verified (e.g. `--verify` was off). Whether a real LIVE finding exists is known
   exactly, so `ai._verified_live_guard` strips every "VERIFIED-LIVE" claim from the output when there
   is none, the same way `_no_findings_guard` already handled invented findings.
+
+### Fixed (AI judging accuracy, round 3)
+- **A manual's table of contents could be shown as a verified-real public IP.** Reported from a real
+  scan: a fire-suppression equipment manual's letter-spaced table of contents contained a section
+  number `3.4.4.2`, which happens to fall in AWS's public IP range. Reverse DNS returned
+  `ec2-3-4-4-2.us-west-2.compute.amazonaws.com`, and the network check read any PTR hit as strong
+  "VALID" evidence — but major cloud providers auto-assign a PTR to *every* address the moment it's
+  allocated to their pool, whether or not it was ever actually used, so this proved nothing about the
+  specific number. `exhume/verify/network.py` now recognizes AWS/Azure/GCP's auto-assigned PTR
+  suffixes and reports those as `UNKNOWN` instead of `VALID`.
+- On top of that, added a deterministic pre-filter: an IP sitting among two or more other dotted
+  section-number lines (`N.N.N.N Título…`) is a table of contents, not an address — decided outright
+  without ever asking the model (`ai_filter._looks_like_numbered_list`), the same short-circuit
+  pattern already used for explicit labels. Confirmed against the exact reported case and a 2nd
+  variant one digit over; both now resolve to false without a model call.
+- `PROMPT_VERSION` bumped to 5 so any previously-cached verdict from before this fix is re-judged
+  instead of reused.
 
 ### Changed
 - README rewritten: shorter, bullet-driven, secondary detail moved into collapsible sections —

@@ -226,3 +226,36 @@ def test_no_strong_label_falls_through_to_the_model():
     stats = ai_filter.judge([r], FakeEngine())
     assert stats["labeled"] == 0 and stats["asked"] == 1
     assert f.ai_verdict == "false"
+
+
+def test_numbered_list_ip_bypasses_the_model_entirely():
+    """A table-of-contents IP such as 3.4.4.2 sitting among other dotted section numbers (e.g. a fire
+    suppression manual's index) must never reach the model, even if the IP coincidentally falls in real
+    cloud-provider address space and gets a reverse-DNS hit — that was the exact reported bug."""
+
+    class BrokenEngine:
+        name = "broken"
+
+        def ask(self, system, user, shots=()):
+            raise AssertionError("a table-of-contents numbered list must never be sent to the model")
+
+    text = ("3.4.4.1 Instalación del sistema\n"
+           "3.4.4.2 Mantenimiento preventivo\n"
+           "3.4.4.3 Pruebas de presión\n"
+           "3.4.4.4 Sustitución de componentes")
+    fs = [x for x in scan_text(text, 3.5) if x.detector == "Public IPv4"]
+    assert len(fs) == 4
+    r = FileResult(path="manual.pdf", name="manual.pdf", ext=".pdf", size=1, findings=fs)
+    stats = ai_filter.judge([r], BrokenEngine())
+    for f in fs:
+        assert f.ai_verdict == "false"
+        assert "dotted section numbers" in f.ai_note
+    assert stats["listed"] == 4 and stats["asked"] == 0
+
+
+def test_single_other_section_number_is_not_enough_to_bypass():
+    """Only one neighbouring dotted-section line isn't enough evidence of a table of contents — this
+    must still fall through to the model (it's the pre-existing _has_strong_label/model path)."""
+    text = "3.2.2.1 Seguridad en el almacén\nIntroducción general\nCapítulo tres"
+    f = next(x for x in scan_text(text, 3.5) if x.detector == "Public IPv4")
+    assert not ai_filter._looks_like_numbered_list(f)
