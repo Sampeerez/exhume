@@ -142,6 +142,42 @@ def test_html_has_sortable_columns_and_responsive_cards(tmp_path):
     assert "@media (max-width:860px)" in html and "@media (max-width:480px)" in html
 
 
+def test_html_sticky_table_header_tracks_real_header_height(tmp_path):
+    """The table header sticks right below the page <header>, but that header's height isn't
+    fixed (a long target path, coverage notes or the AI-engine line can wrap it over several
+    lines) — a hardcoded sticky offset left a gap where an already-scrolled-past row peeked
+    through, overlapping the SEVERITY/VERIFIED/... column labels (reported bug). The offset
+    must track the header's real, live height instead of a constant."""
+    p = tmp_path / "r.html"
+    write_html(build_payload(_sample_results(), _stats()), str(p))
+    html = p.read_text()
+    assert "--hdrH" in html and "ResizeObserver" in html
+    assert "top:var(--hdrH" in html
+
+
+def test_html_truncates_location_column_with_ellipsis(tmp_path):
+    """A deeply nested path used to wrap the location cell across 2-3 lines, bloating row
+    height and making the table noisy — it's now a single truncated line with the full path
+    available via a title tooltip and in the expanded detail view."""
+    p = tmp_path / "r.html"
+    write_html(build_payload(_sample_results(), _stats()), str(p))
+    html = p.read_text()
+    assert "locpath" in html and "text-overflow:ellipsis" in html
+
+
+def test_tablewrap_is_not_a_scroll_container(tmp_path):
+    """overflow-x:auto on this wrapper would make it its own scroll container, which hijacks
+    position:sticky on the th's below — they'd stick to THIS box's edge instead of the page's,
+    detaching the header row so it floats mid-table instead of sitting above row one. Location
+    and value are truncated instead so the table doesn't need its own horizontal scrollbar."""
+    import re
+    p = tmp_path / "r.html"
+    write_html(build_payload(_sample_results(), _stats()), str(p))
+    html = p.read_text()
+    m = re.search(r"\.tablewrap\{([^}]*)\}", html)
+    assert m and "overflow" not in m.group(1)
+
+
 def test_ai_triage_bold_markdown_is_rendered_in_html():
     from exhume.reporting.html import _md_to_html
     out = _md_to_html("## Fastest paths to access\n- **AWS Credentials**: rotate immediately.")

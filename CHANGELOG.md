@@ -27,6 +27,35 @@ All notable versions of Exhume.
   to 2 then 1 per row below 860px/480px instead of staying squeezed into 5; the table scrolls
   horizontally on its own instead of blowing out the page width.
 
+### Fixed (HTML report)
+- **The table's sticky header could float in the middle of the rows instead of staying pinned
+  below the page header** — reported from a real scan screenshot (the SEVERITY/VERIFIED/DETECTOR
+  column labels overlapping a row's text). Two compounding causes, both fixed:
+  - The sticky offset was a hardcoded `73px` that assumed a short, single-line target path — but a
+    long path, coverage notes or the AI-engine line can wrap the page header over several lines.
+    The offset now tracks the header's real, live height (`ResizeObserver` + a CSS variable)
+    instead of a constant that silently went stale.
+  - Separately, the `overflow-x:auto` added for small-screen table scrolling (previous entry)
+    turned its wrapper into its own scroll container, which hijacks `position:sticky` on the
+    header cells — they'd stick to that box's edge instead of the page's, detaching the header row
+    entirely. Removed now that location/value are truncated (next entry), so the table rarely
+    needs a horizontal scrollbar of its own; a narrow viewport just scrolls the whole page instead.
+
+### Changed (HTML report design)
+General visual pass requested after the sticky-header bug report ("que se vea increíble"):
+- The location column was the main source of visual noise — a deeply nested path wrapped across
+  2-3 lines, bloating every row. It's now a single truncated line with `…` and the full path in a
+  tooltip (still shown in full in the expanded row and the "seen in N places" list); clicking it
+  copies the path, mirroring the existing click-to-copy on the value.
+- Reworked the color system: severity cards get a subtle tinted gradient and a colored left edge
+  matching their severity, pills get a small colored dot, picked rows in report mode get an accent
+  edge instead of only a background tint, a thin gradient accent line tops the page header.
+  Buttons, inputs, selects and the segmented severity control all got consistent hover/focus states
+  (including `:focus-visible` outlines) and the toolbar is now a bordered, grouped panel instead of
+  loose floating controls.
+- Custom dark-themed scrollbars (previously the browser's default light scrollbar, jarring against
+  the dark report), smoother row-expand and toast transitions, a subtle page background gradient.
+
 ### Fixed
 - **Garbage binary data was still matched by detectors that have no entropy/junk check of their
   own** (IPv6 in particular: `8::` is syntactically valid IPv6, and random bytes misread as UTF-16
